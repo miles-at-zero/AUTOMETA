@@ -71,6 +71,19 @@ class WhatsAppIntegration extends Integration {
     };
   }
 
+  /// Adapter for one step: an explicit per-automation account wins over the
+  /// default chosen in Connections.
+  Future<WhatsAppAdapter?> adapterFor(String? account) async {
+    switch (WhatsAppAccountType.fromWire(account)) {
+      case WhatsAppAccountType.personal:
+        return personalAdapter;
+      case WhatsAppAccountType.business:
+        return businessAdapter;
+      case null:
+        return adapter();
+    }
+  }
+
   @override
   Future<IntegrationAvailability> check() async {
     final WhatsAppAccountType? type = await activeType();

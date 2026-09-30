@@ -152,11 +152,16 @@ class WhatsAppStep extends WorkflowStep {
     this.message = '',
     this.templateName,
     this.requiresApproval,
+    this.account,
     super.label,
     super.continueOnError,
   });
 
   final WhatsAppMode mode;
+
+  /// Which WhatsApp account sends this step: 'personal', 'business', or null
+  /// for the default chosen in Connections.
+  final String? account;
 
   /// A contact alias ("Dad"), never a raw number in the definition.
   final String recipient;
@@ -179,10 +184,13 @@ class WhatsAppStep extends WorkflowStep {
     String? message,
     String? templateName,
     bool? requiresApproval,
+    String? account,
+    bool clearAccount = false,
     String? label,
     bool? continueOnError,
   }) =>
       WhatsAppStep(
+        account: clearAccount ? null : (account ?? this.account),
         id: id,
         mode: mode ?? this.mode,
         recipient: recipient ?? this.recipient,
@@ -196,6 +204,7 @@ class WhatsAppStep extends WorkflowStep {
   @override
   WorkflowStep copyWithId(String newId) => WhatsAppStep(
         id: newId,
+        account: account,
         mode: mode,
         recipient: recipient,
         message: message,
@@ -215,6 +224,7 @@ class WhatsAppStep extends WorkflowStep {
         'message': message,
         if (templateName != null) 'template': templateName,
         if (requiresApproval != null) 'requires_approval': requiresApproval,
+        if (account != null) 'account': account,
       };
 
   factory WhatsAppStep.fromJson(Object? json) {
@@ -225,6 +235,7 @@ class WhatsAppStep extends WorkflowStep {
       recipient: asString(map['recipient'], fallback: 'Dad'),
       message: asString(map['message']),
       templateName: asStringOrNull(map['template']),
+      account: asStringOrNull(map['account']),
       requiresApproval: map['requires_approval'] == null
           ? null
           : asBool(map['requires_approval']),

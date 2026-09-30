@@ -1,0 +1,19 @@
+name: whatsapp_auto_send
+description: On-device WhatsApp auto-send for AUTOMETA via an Android Accessibility Service.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+  flutter: ">=3.29.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.autometa.wa
+        pluginClass: WhatsAppAutoSendPlugin

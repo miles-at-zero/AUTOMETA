@@ -46,6 +46,10 @@ dependencies:
   meta: ^1.15.0
   cupertino_icons: ^1.0.8
 
+  # On-device WhatsApp auto-send (Accessibility Service), local plugin.
+  whatsapp_auto_send:
+    path: packages/whatsapp_auto_send
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

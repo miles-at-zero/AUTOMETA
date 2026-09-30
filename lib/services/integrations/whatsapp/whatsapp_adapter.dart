@@ -70,6 +70,10 @@ abstract class WhatsAppAdapter {
   List<String> get limitations;
 
   /// Real, live verification. Never inferred from stored settings alone.
+  /// Whether a `send` step can be completed without the user right now.
+  /// Personal accounts return true only while on-device auto-send is enabled.
+  Future<bool> canSendNow() async => capabilities.canSendAutomatically;
+
   Future<IntegrationAvailability> check();
 
   /// Builds the official click-to-chat deep link, or null when this adapter

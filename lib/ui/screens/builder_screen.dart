@@ -569,11 +569,25 @@ class _StepEditorState extends State<_StepEditor> {
             onChanged: (WhatsAppMode? m) => setState(() => _s = s.copyWith(mode: m)),
           ),
           const SizedBox(height: AutometaSpacing.sm),
+          const SizedBox(height: AutometaSpacing.sm),
+          DropdownButtonFormField<String>(
+            value: s.account ?? 'default',
+            decoration: const InputDecoration(labelText: 'Send with'),
+            items: const <DropdownMenuItem<String>>[
+              DropdownMenuItem<String>(value: 'default', child: Text('Default account (Connections)')),
+              DropdownMenuItem<String>(value: 'personal', child: Text('My WhatsApp (this phone)')),
+              DropdownMenuItem<String>(value: 'business', child: Text('WhatsApp Business API')),
+            ],
+            onChanged: (String? v) => setState(() => _s = v == null || v == 'default'
+                ? s.copyWith(clearAccount: true)
+                : s.copyWith(account: v)),
+          ),
+          const SizedBox(height: AutometaSpacing.sm),
           Text(
             s.mode == WhatsAppMode.send
-                ? 'Automatic sending only works with a connected WhatsApp Business account. '
-                    'On a personal account this block prepares the message and asks for approval.'
-                : 'Personal account: AUTOMETA opens WhatsApp with the message ready and you tap Send.',
+                ? 'Sends automatically with a Business account, or from your phone when auto-send is on '
+                    '(Connections → WhatsApp). Otherwise it prepares the message and asks for approval.'
+                : 'AUTOMETA opens WhatsApp with the message ready and you tap Send.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: AutometaSpacing.md),
@@ -585,7 +599,7 @@ class _StepEditorState extends State<_StepEditor> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Always ask before sending'),
-            subtitle: const Text('Personal accounts always require approval'),
+            subtitle: const Text('Off = send on schedule without asking (needs auto-send or Business)'),
             value: s.requiresApproval ?? true,
             onChanged: (bool v) => setState(() => _s = s.copyWith(requiresApproval: v)),
           ),

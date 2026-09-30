@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="autometa_wa_service_label">AUTOMETA WhatsApp auto-send</string>
+    <string name="autometa_wa_service_description">Lets AUTOMETA press Send in WhatsApp for messages you scheduled. It only works inside WhatsApp and only acts when one of your automations is sending a message. It does not read, store or upload your chats.</string>
+</resources>

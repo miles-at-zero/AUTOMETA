@@ -54,7 +54,7 @@ class WhatsAppStepExecutor extends StepExecutor {
       return StepResult.failed(reason: 'Internal error: wrong block type', code: 'whatsapp.bad_step');
     }
 
-    final WhatsAppAdapter? adapter = await integration.adapter();
+    final WhatsAppAdapter? adapter = await integration.adapterFor(step.account);
     if (adapter == null) {
       return const StepResult.failed(
         reason: 'WhatsApp is not connected. Open Connections and choose Personal or Business.',
@@ -77,7 +77,8 @@ class WhatsAppStepExecutor extends StepExecutor {
 
     // A `send` request against an adapter that cannot send is downgraded, never
     // silently treated as delivered.
-    if (mode == WhatsAppMode.send && !adapter.capabilities.canSendAutomatically) {
+    final bool canSendNow = mode == WhatsAppMode.send && await adapter.canSendNow();
+    if (mode == WhatsAppMode.send && !canSendNow) {
       mode = WhatsAppMode.prepare;
       _log.info('Downgraded WhatsApp step to prepare: '
           '${adapter.accountType.label} cannot send automatically');
@@ -91,7 +92,8 @@ class WhatsAppStepExecutor extends StepExecutor {
       );
     }
 
-    final bool needsApproval = _requiresApproval(step: step, adapter: adapter, context: context);
+    final bool needsApproval =
+        _requiresApproval(step: step, adapter: adapter, context: context, autoSend: canSendNow);
 
     if (needsApproval) {
       return StepResult(
@@ -148,6 +150,13 @@ class WhatsAppStepExecutor extends StepExecutor {
             if (outcome.messageId != null) 'whatsapp_message_id': outcome.messageId!,
           },
         );
+      case WhatsAppDeliveryState.sentFromPhone:
+        return StepResult(
+          outcome: StepOutcome.success,
+          detail: outcome.reason ??
+              'Sent from your phone: AUTOMETA pressed Send in WhatsApp and WhatsApp accepted it.',
+          code: 'whatsapp.sent_from_phone',
+        );
       case WhatsAppDeliveryState.handedToUser:
         // Honest state: the chat is open with the text prefilled. AUTOMETA did
         // its part; the user still has to press Send and we cannot see it.
@@ -161,7 +170,7 @@ class WhatsAppStepExecutor extends StepExecutor {
         return StepResult.failed(
           reason: outcome.reason ?? 'WhatsApp delivery failed',
           code: 'whatsapp.failed',
-          retriable: true,
+          retriable: outcome.retriable,
         );
       case WhatsAppDeliveryState.notSupported:
         return StepResult.failed(
@@ -175,6 +184,7 @@ class WhatsAppStepExecutor extends StepExecutor {
     required WhatsAppStep step,
     required WhatsAppAdapter adapter,
     required StepContext context,
+    required bool autoSend,
   }) {
     if (context.dryRun) return false;
     if (context.isApproved(step.id)) return false;
@@ -182,7 +192,8 @@ class WhatsAppStepExecutor extends StepExecutor {
     if (step.mode == WhatsAppMode.open) return false;
     final bool? explicit = step.requiresApproval;
     if (explicit != null) return explicit;
-    // Default policy (spec §23): personal WhatsApp always needs approval.
-    return adapter.accountType == WhatsAppAccountType.personal;
+    // Default policy: personal WhatsApp needs approval unless the user has
+    // turned on on-device auto-send and this step is set to send.
+    return adapter.accountType == WhatsAppAccountType.personal && !autoSend;
   }
 }

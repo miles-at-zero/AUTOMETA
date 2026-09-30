@@ -45,6 +45,10 @@ enum WhatsAppDeliveryState {
   /// The conversation is open in WhatsApp with the text prefilled.
   handedToUser('handed_to_user', 'Handed to WhatsApp'),
 
+  /// Personal account auto-send: AUTOMETA pressed Send on this phone and
+  /// WhatsApp cleared the input box (it accepted the message).
+  sentFromPhone('sent_from_phone', 'Sent from your phone'),
+
   /// Nothing was delivered.
   failed('failed', 'Failed'),
 
@@ -67,7 +71,11 @@ class WhatsAppSendOutcome {
     this.messageId,
     this.reason,
     this.handoffUri,
+    this.retriable = true,
   });
+
+  /// False when retrying could send a duplicate (e.g. Send may have gone through).
+  final bool retriable;
 
   final WhatsAppDeliveryState state;
 
@@ -80,7 +88,10 @@ class WhatsAppSendOutcome {
   /// The deep link that was opened, for personal-account handoffs.
   final Uri? handoffUri;
 
-  bool get succeeded => state == WhatsAppDeliveryState.delivered || state == WhatsAppDeliveryState.held;
+  bool get succeeded =>
+      state == WhatsAppDeliveryState.delivered ||
+      state == WhatsAppDeliveryState.held ||
+      state == WhatsAppDeliveryState.sentFromPhone;
 }
 
 /// Non-secret Business API configuration. The access token is *not* here;
