@@ -124,30 +124,112 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) => Scaffold(
         body: IndexedStack(index: _index, children: _pages),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: select,
-          destinations: <Widget>[
-            const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-            const NavigationDestination(icon: Icon(Icons.account_tree_outlined), selectedIcon: Icon(Icons.account_tree), label: 'Automations'),
-            NavigationDestination(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AutometaColors.accentDeep,
-                  border: Border.all(color: AutometaColors.accent.withValues(alpha: 0.5)),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(color: AutometaColors.accent.withValues(alpha: 0.25), blurRadius: 14),
-                  ],
-                ),
-                child: const Icon(Icons.add, color: AutometaColors.accent),
-              ),
-              label: 'Create',
-            ),
-            const NavigationDestination(icon: Icon(Icons.history), label: 'Activity'),
-            const NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
-          ],
-        ),
+        bottomNavigationBar: _AutometaNavBar(index: _index, onSelect: select),
       );
+}
+
+
+/// Bottom navigation whose labels always fit: each slot gets an equal share
+/// of the width and its label scales down (never wraps or overflows), even
+/// on narrow phones or with large system font sizes.
+class _AutometaNavBar extends StatelessWidget {
+  const _AutometaNavBar({required this.index, required this.onSelect});
+
+  final int index;
+  final ValueChanged<int> onSelect;
+
+  static const List<(IconData, IconData, String)> _items = <(IconData, IconData, String)>[
+    (Icons.home_outlined, Icons.home, 'Home'),
+    (Icons.account_tree_outlined, Icons.account_tree, 'Automations'),
+    (Icons.add, Icons.add, 'Create'),
+    (Icons.history, Icons.history, 'Activity'),
+    (Icons.settings_outlined, Icons.settings, 'Settings'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final MediaQueryData mq = MediaQuery.of(context);
+    return MediaQuery(
+      // Cap text scaling inside the bar; content screens still honour it fully.
+      data: mq.copyWith(textScaler: mq.textScaler.clamp(maxScaleFactor: 1.15)),
+      child: Material(
+        color: theme.colorScheme.surface,
+        elevation: 3,
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 68,
+            child: Row(
+              children: <Widget>[
+                for (int i = 0; i < _items.length; i++)
+                  Expanded(child: _slot(context, i)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _slot(BuildContext context, int i) {
+    final (IconData icon, IconData selectedIcon, String label) = _items[i];
+    final bool selected = i == index;
+    final bool isCreate = i == 2;
+    final Color color = selected || isCreate ? AutometaColors.accent : Theme.of(context).colorScheme.onSurfaceVariant;
+    final Widget glyph = isCreate
+        ? Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AutometaColors.accentDeep,
+              border: Border.all(color: AutometaColors.accent.withValues(alpha: 0.5)),
+              boxShadow: <BoxShadow>[
+                BoxShadow(color: AutometaColors.accent.withValues(alpha: 0.25), blurRadius: 12),
+              ],
+            ),
+            child: Icon(Icons.add, size: 20, color: color),
+          )
+        : AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: selected ? AutometaColors.accent.withValues(alpha: 0.16) : Colors.transparent,
+            ),
+            child: Icon(selected ? selectedIcon : icon, size: 22, color: color),
+          );
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: () => onSelect(i),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              glyph,
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
