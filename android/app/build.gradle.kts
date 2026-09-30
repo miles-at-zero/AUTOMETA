@@ -34,6 +34,7 @@ android {
             // before publishing. Debug signing keeps `flutter run --release` working.
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
