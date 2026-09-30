@@ -37,6 +37,13 @@ jobs:
           flutter build apk --release > build.txt 2>&1; rc=$?
           grep -iE "error|FAILURE|What went wrong" -A2 build.txt | head -40 | while IFS= read -r l; do echo "::error::B $l"; done
           exit $rc
+      - name: report logs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '```'; grep -vE "^ *info " analyze.txt | head -150; echo '--- TEST'; grep -E "\[E\]|rror|Expected|Actual|Which|\.dart:[0-9]+" test.txt | head -120; echo '--- BUILD'; grep -iE "error|wrong|FAIL" -A3 build.txt | head -80; echo '```'; } > report.md || true
+          gh api repos/${{ github.repository }}/commits/$GITHUB_SHA/comments -F body=@report.md || true
       - name: publish release
         if: steps.apk.outcome == 'success' && github.event_name == 'push'
         env:
