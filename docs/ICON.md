@@ -20,3 +20,6 @@ A clean **placeholder** is shipped (vector, adaptive, monochrome) and matches th
 
 ## Using your own image
 Put a 1024×1024 PNG at `assets/branding/icon.png` (plus a transparent foreground at `assets/branding/icon_foreground.png`), add `flutter_launcher_icons` as a dev dependency with `adaptive_icon_background: "#07090C"`, `adaptive_icon_foreground`, `adaptive_icon_monochrome`, and run `dart run flutter_launcher_icons`. Then delete the `mipmap/ic_launcher.xml` fallback so the generated PNGs are used.
+
+## Current state
+Final artwork (`assets/branding/icon.png`) is in use: pre-rendered `mipmap-*/ic_launcher.png` (legacy) and `ic_launcher_foreground.png` (adaptive). The vector monochrome and notification icons remain for themed icons/status bar.
