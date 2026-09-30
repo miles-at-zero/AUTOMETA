@@ -41,7 +41,7 @@ class WorkflowEngine {
     this.validator = const WorkflowValidator(),
     this.evaluator = const ConditionEvaluator(),
     this.time = const EngineTime(),
-    this.scheduleCalculator,
+    ScheduleCalculator? scheduleCalculator,
     this.delayHandler,
     this.idGenerator,
     this.maxInProcessWait = const Duration(minutes: 2),
@@ -358,7 +358,9 @@ class WorkflowEngine {
           simulated: context.dryRun,
         ));
         _emitStep(context.executionId, workflow, results.last);
-        queue.addAllFirst(evaluation.result ? step.thenSteps : step.elseSteps);
+        for (final WorkflowStep branchStep in (evaluation.result ? step.thenSteps : step.elseSteps).reversed) {
+          queue.addFirst(branchStep);
+        }
         continue;
       }
 

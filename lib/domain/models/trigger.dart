@@ -190,9 +190,7 @@ class ScheduleTrigger extends WorkflowTrigger {
           hour,
           minute,
         );
-        final int daysInMonth = tz.TZDateTime(location, candidate.year, candidate.month + 1, 1)
-            .difference(candidate)
-            .inDays;
+        final int daysInMonth = DateTime.utc(candidate.year, candidate.month + 1, 0).day;
         if (day > daysInMonth) continue;
         final tz.TZDateTime atDay = tz.TZDateTime(
           location,

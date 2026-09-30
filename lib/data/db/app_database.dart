@@ -188,9 +188,11 @@ class AppDatabase {
   static Future<AppDatabase> openInMemory({DatabaseFactory? factory}) async {
     final Database db = await (factory ?? databaseFactory).openDatabase(
       inMemoryDatabasePath,
-      version: Schema.version,
-      onConfigure: (Database db) => db.execute('PRAGMA foreign_keys = ON'),
-      onCreate: _createAll,
+      options: OpenDatabaseOptions(
+        version: Schema.version,
+        onConfigure: (Database db) => db.execute('PRAGMA foreign_keys = ON'),
+        onCreate: _createAll,
+      ),
     );
     return AppDatabase._(db);
   }

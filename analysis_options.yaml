@@ -15,7 +15,6 @@ linter:
   rules:
     - always_declare_return_types
     - avoid_print
-    - avoid_returning_null_for_future
     - avoid_slow_async_io
     - cancel_subscriptions
     - close_sinks
