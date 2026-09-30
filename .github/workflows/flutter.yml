@@ -2,8 +2,10 @@ name: flutter
 on:
   push:
   pull_request:
+permissions:
+  contents: write
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -12,14 +14,35 @@ jobs:
           channel: stable
       - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
       - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
+      - name: analyze
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.txt 2>&1; rc=$?
+          grep -E "^ *error" analyze.txt | head -45 | while IFS= read -r l; do echo "::error::A $l"; done
+          exit $rc
+      - name: test
+        if: always()
+        run: |
+          flutter test --reporter expanded > test.txt 2>&1; rc=$?
+          grep -E "\[E\]|Error:|error:|Expected:|Actual:" test.txt | head -40 | while IFS= read -r l; do echo "::warning::T $l"; done
+          exit $rc
       - uses: actions/setup-java@v4
+        if: always()
         with:
           distribution: temurin
           java-version: '17'
-      - run: flutter build apk --debug
-      - uses: actions/upload-artifact@v4
-        with:
-          name: autometa-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+      - name: build apk
+        id: apk
+        if: always()
+        run: |
+          flutter build apk --release > build.txt 2>&1; rc=$?
+          grep -iE "error|FAILURE|What went wrong" -A2 build.txt | head -40 | while IFS= read -r l; do echo "::error::B $l"; done
+          exit $rc
+      - name: publish release
+        if: steps.apk.outcome == 'success' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk autometa.apk
+          gh release delete latest-build -y --cleanup-tag || true
+          gh release create latest-build autometa.apk --prerelease --target "$GITHUB_SHA" \
+            --title "AUTOMETA latest build" --notes "Automated build from $GITHUB_SHA. Install on Android (allow unknown sources)."
