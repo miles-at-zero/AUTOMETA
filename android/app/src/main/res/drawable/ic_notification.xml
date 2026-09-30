@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome layer for Android 13 themed icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- legs -->
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4.5"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M31,79 L54,29 L77,79" />
+    <!-- orbital loop / crossbar -->
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3"
+        android:pathData="M34,64 A20,6.5 0 1,0 74,64 A20,6.5 0 1,0 34,64 Z" />
+    <!-- nodes -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M54,29 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M31,79 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M77,79 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" />
+</vector>

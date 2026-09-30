@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "example-morning-dad",
+  "name": "Morning Dad",
+  "enabled": true,
+  "time_zone": "Africa/Lagos",
+  "max_retries": 2,
+  "trigger": {
+    "type": "schedule",
+    "time": "07:00",
+    "repeat": "daily"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "type": "whatsapp",
+      "mode": "prepare",
+      "recipient": "Dad",
+      "message": "Good morning Dad"
+    }
+  ]
+}

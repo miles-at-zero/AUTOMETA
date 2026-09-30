@@ -1,0 +1,40 @@
+# ---- Secrets: never commit credentials ----
+*.env
+.env.*
+!.env.example
+secrets.json
+autometa.secrets.*
+
+# ---- Flutter / Dart ----
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+*.g.dart
+*.freezed.dart
+
+# ---- Android ----
+android/.gradle/
+android/local.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/key.properties
+*.jks
+*.keystore
+
+# ---- Generated launcher icons (large PNGs are generated, keep sources) ----
+android/app/src/main/res/mipmap-*/ic_launcher.png
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.iml
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
