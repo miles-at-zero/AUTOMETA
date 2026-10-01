@@ -14,6 +14,7 @@ import '../../state/app_state.dart';
 import '../app.dart';
 import '../widgets/autometa_widgets.dart';
 import 'approval_sheet.dart';
+import 'business/business_shell.dart';
 import '../widgets/message_ready_card.dart';
 import 'execution_detail_screen.dart';
 
@@ -129,6 +130,22 @@ class HomeScreen extends StatelessWidget {
                     ),
                   const SizedBox(height: AutometaSpacing.xl),
                   PrimaryAction(label: 'Create Automation', icon: Icons.add, onPressed: () => AppShell.goTo(context, 2)),
+                  const SizedBox(height: AutometaSpacing.lg),
+                  Panel(
+                    glow: AutometaColors.secondary,
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BusinessGate())),
+                    child: const Row(children: <Widget>[
+                      Icon(Icons.storefront_outlined, color: AutometaColors.secondary),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                          Text('Business mode', style: TextStyle(fontWeight: FontWeight.w600)),
+                          Text('Auto-reply to customers, take orders, capture leads and share the inbox with staff, using the official WhatsApp Business Platform.'),
+                        ]),
+                      ),
+                      Icon(Icons.chevron_right),
+                    ]),
+                  ),
                   const SizedBox(height: AutometaSpacing.xl),
                 ],
               ),

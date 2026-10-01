@@ -38,6 +38,9 @@ dependencies:
   # --- Network ------------------------------------------------------------
   http: ^1.2.2
 
+  # Google Play subscriptions for Business plans (verified server-side).
+  in_app_purchase: ^3.2.0
+
   # --- Utilities ----------------------------------------------------------
   intl: ^0.19.0
   uuid: ^4.5.0

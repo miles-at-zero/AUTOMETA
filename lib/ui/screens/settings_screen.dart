@@ -13,6 +13,7 @@ import '../../state/app_state.dart';
 import '../app.dart';
 import '../widgets/autometa_widgets.dart';
 import 'ai_settings_screen.dart';
+import 'business/business_shell.dart';
 import 'reliability_screen.dart';
 import 'connections_screen.dart';
 import 'contacts_screen.dart';
@@ -47,6 +48,18 @@ class SettingsScreen extends StatelessWidget {
                       : 'Stops every scheduled run until you resume.'),
                   value: settings.isPaused,
                   onChanged: (bool v) => state.setPaused(v),
+                ),
+              ),
+              const SizedBox(height: AutometaSpacing.xl),
+              const SectionLabel('Mode'),
+              Panel(
+                padding: EdgeInsets.zero,
+                child: ListTile(
+                  leading: const Icon(Icons.storefront_outlined, color: AutometaColors.secondary),
+                  title: const Text('Business mode'),
+                  subtitle: const Text('Customer inbox, order and lead workflows, team, insights'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => push(const BusinessGate()),
                 ),
               ),
               const SizedBox(height: AutometaSpacing.xl),

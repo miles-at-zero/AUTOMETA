@@ -64,3 +64,6 @@ A spec-compliant **placeholder** vector icon ships in `android/app/src/main/res/
 * [WhatsApp integrations](docs/WHATSAPP.md)
 * [Testing & real-device checklist](docs/TESTING.md)
 * [Icon spec](docs/ICON.md)
+
+## Business mode
+WhatsApp Business automation for shops and service businesses: inbox, order and lead workflows, team, insights and plans. App side: `lib/ui/screens/business/`. Server: `server/`. Guide: [docs/BUSINESS.md](docs/BUSINESS.md).
