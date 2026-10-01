@@ -1,0 +1,12 @@
+{
+  "name": "autometa-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AUTOMETA Business backend: WhatsApp Cloud API webhooks, conversation workflows, team inbox, analytics, subscriptions.",
+  "type": "module",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
+  }
+}
