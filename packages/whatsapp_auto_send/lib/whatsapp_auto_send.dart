@@ -11,11 +11,19 @@ class AutoSendResult {
 }
 
 class AutoSendServiceStatus {
-  const AutoSendServiceStatus({required this.enabled, required this.running, this.whatsappPackage});
+  const AutoSendServiceStatus({
+    required this.enabled,
+    required this.running,
+    this.whatsappPackage,
+    this.supported = true,
+  });
+
+  /// False in the Standard edition (no Accessibility Service in the APK).
+  final bool supported;
   final bool enabled;
   final bool running;
   final String? whatsappPackage;
-  bool get ready => enabled && running && whatsappPackage != null;
+  bool get ready => supported && enabled && running && whatsappPackage != null;
 }
 
 /// Dart side of the on-device WhatsApp auto-send Accessibility Service.
@@ -28,12 +36,13 @@ class WhatsAppAutoSend {
     try {
       final Map<dynamic, dynamic>? m = await _channel.invokeMapMethod<dynamic, dynamic>('status');
       return AutoSendServiceStatus(
+        supported: m?['supported'] != false,
         enabled: m?['enabled'] == true,
         running: m?['running'] == true,
         whatsappPackage: m?['whatsappPackage'] as String?,
       );
     } on MissingPluginException {
-      return const AutoSendServiceStatus(enabled: false, running: false);
+      return const AutoSendServiceStatus(enabled: false, running: false, supported: false);
     }
   }
 

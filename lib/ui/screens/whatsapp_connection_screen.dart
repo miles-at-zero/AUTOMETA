@@ -73,6 +73,21 @@ class _WhatsAppConnectionScreenState extends State<WhatsAppConnectionScreen> wit
   Widget _autoSendPanel(BuildContext context) {
     final AutoSendServiceStatus? a = _auto;
     final bool ready = a?.ready ?? false;
+    if (a != null && !a.supported) {
+      return Panel(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+          Text('Auto-send from this phone', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          const Text(
+            'Not included in this edition. Google Play Protect blocks sideloaded apps that use Accessibility, '
+            'so this edition leaves it out and you approve each message with one tap instead.\n\n'
+            'To get auto-send, install the "AUTOMETA Auto-send" APK from a computer over USB:\n'
+            'adb install -r autometa-autosend.apk\n\n'
+            'Or use the WhatsApp Business API, which sends automatically with no extra install.',
+          ),
+        ]),
+      );
+    }
     final String state = a == null
         ? 'Checking…'
         : a.whatsappPackage == null

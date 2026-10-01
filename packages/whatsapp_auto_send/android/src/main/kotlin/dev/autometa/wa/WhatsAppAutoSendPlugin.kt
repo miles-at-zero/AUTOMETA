@@ -21,6 +21,7 @@ class WhatsAppAutoSendPlugin : FlutterPlugin {
                 when (call.method) {
                     "status" -> result.success(
                         mapOf(
+                            "supported" to isSupported(),
                             "enabled" to isEnabled(),
                             "running" to (AutoSendAccessibilityService.instance != null),
                             "whatsappPackage" to whatsappPackage(),
@@ -58,6 +59,14 @@ class WhatsAppAutoSendPlugin : FlutterPlugin {
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel?.setMethodCallHandler(null)
         channel = null
+    }
+
+    /** False in the Standard edition, which doesn't declare the service. */
+    private fun isSupported(): Boolean = try {
+        context.packageManager.getServiceInfo(ComponentName(context, AutoSendAccessibilityService::class.java), 0)
+        true
+    } catch (e: PackageManager.NameNotFoundException) {
+        false
     }
 
     private fun isEnabled(): Boolean {
