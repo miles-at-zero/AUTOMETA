@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart' as launcher;
 import 'package:provider/provider.dart';
 
 import '../../app_services.dart';
@@ -6,6 +7,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme/design_tokens.dart';
 import '../../services/connections/connection_manager.dart';
 import '../../services/connections/connection_state.dart';
+import '../../services/integrations/integration.dart';
 import '../../services/integrations/whatsapp/whatsapp_models.dart';
 import 'package:whatsapp_auto_send/whatsapp_auto_send.dart';
 import '../widgets/autometa_widgets.dart';
@@ -106,19 +108,187 @@ class _WhatsAppConnectionScreenState extends State<WhatsAppConnectionScreen> wit
     );
   }
 
-  static const List<String> _businessGuide = <String>[
-    'Go to developers.facebook.com, log in with Facebook and create an app (type: Business).',
-    'Add the "WhatsApp" product. Meta gives you a free test number, or add your own number. It must be a number NOT already on the WhatsApp app (e.g. a new SIM).',
-    'In WhatsApp → API Setup, copy the "Phone number ID" into the field below.',
-    'In Business Settings → System users, create a system user, give it your app and WhatsApp account, and generate a permanent token with whatsapp_business_messaging. Paste it below.',
-    'Add each recipient (e.g. Dad) to Settings → Contacts in AUTOMETA with their full international number.',
-    'Recipients who haven\'t messaged your business number in the last 24 hours can only get approved templates. Create one in WhatsApp Manager → Message templates and put its name in the WhatsApp block. Easiest: ask Dad to send your business number a message once a day.',
+
+  int _wizardStep = 0;
+  String? _testResult;
+  bool _businessOk = false;
+
+  static const List<(String, String)> _wizard = <(String, String)>[
+    (
+      'Create a Meta app',
+      'Meta (Facebook\'s parent company) runs the official WhatsApp Business Platform. On a computer, go to '
+          'developers.facebook.com, log in with Facebook, tap "My Apps" → "Create app", choose "Business". '
+          'It\'s free.'
+    ),
+    (
+      'Add WhatsApp to the app',
+      'In your new app\'s dashboard, find "WhatsApp" and tap "Set up". Meta creates a WhatsApp Business '
+          'Account for you and gives you a free test number you can use straight away.'
+    ),
+    (
+      'Verify your business (optional at first)',
+      'With the test number you can message up to 5 numbers you add as testers (add Dad\'s number there). '
+          'To message anyone, verify your business in Business Settings → Security Centre. You can skip this for now.'
+    ),
+    (
+      'Choose the sending number',
+      'Use the test number, or add your own under WhatsApp → API Setup → "Add phone number". Your own number '
+          'must NOT be in use on the WhatsApp app. Use a spare SIM. Then copy its "Phone number ID" (a long number '
+          'shown under the phone number on the API Setup page; it is NOT the phone number itself).'
+    ),
+    (
+      'Add an access token',
+      'The token is the password that lets AUTOMETA send on your behalf. Quick test: copy the "Temporary access '
+          'token" from API Setup (expires in 24 h). Permanent: Business Settings → Users → System users → Add → '
+          'Generate token, tick whatsapp_business_messaging. It\'s stored in Android secure storage, never in '
+          'automations or logs.'
+    ),
+    (
+      'Test the connection',
+      'AUTOMETA asks Meta whether this number and token work. Nothing is sent. Note: people who haven\'t '
+          'messaged your business number in the last 24 h can only receive approved templates (create them in '
+          'WhatsApp Manager → Message templates, then put the template name in the WhatsApp block).'
+    ),
   ];
+
+  Widget _businessWizard(BuildContext context, ConnectionStatus status) {
+    final TextTheme text = Theme.of(context).textTheme;
+    Widget body(int i) {
+      final List<Widget> extra = <Widget>[];
+      if (i == 3) {
+        extra.add(TextField(
+          controller: _phoneId,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Phone number ID', helperText: 'Digits only, e.g. 1069…'),
+        ));
+      } else if (i == 4) {
+        extra.addAll(<Widget>[
+          TextField(
+            controller: _token,
+            obscureText: true,
+            enableSuggestions: false,
+            autocorrect: false,
+            decoration: const InputDecoration(
+              labelText: 'Access token',
+              helperText: 'Starts with "EAA". Leave blank to keep the saved one.',
+            ),
+          ),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: Text('Advanced', style: text.bodySmall),
+            children: <Widget>[
+              TextField(
+                controller: _version,
+                decoration: const InputDecoration(labelText: 'Graph API version', helperText: 'Leave as is unless Meta retires it'),
+              ),
+            ],
+          ),
+        ]);
+      } else if (i == 5) {
+        extra.addAll(<Widget>[
+          PrimaryAction(
+            label: 'Test connection',
+            icon: Icons.wifi_tethering,
+            busy: _busy,
+            onPressed: () async {
+              final AppServices s = context.read<AppServices>();
+              setState(() => _busy = true);
+              try {
+                await s.saveWhatsAppBusinessConfig(
+                  phoneNumberId: _phoneId.text,
+                  accessToken: _token.text,
+                  apiVersion: _version.text,
+                );
+                _token.clear();
+                final IntegrationAvailability av = await s.whatsapp.businessAdapter.check();
+                if (!mounted) return;
+                setState(() {
+                  _businessOk = av.status.isUsable;
+                  _testResult = av.status.isUsable
+                      ? '✓ Connected. AUTOMETA can send from this number. Pick "WhatsApp Business API" in a WhatsApp block to use it.'
+                      : '✗ ${av.status.label}: ${av.limitations.join('; ')}';
+                });
+              } finally {
+                if (mounted) setState(() => _busy = false);
+              }
+            },
+          ),
+          if (_testResult != null) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(_testResult!, style: TextStyle(color: _businessOk ? AutometaColors.success : AutometaColors.danger)),
+          ],
+        ]);
+      }
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Text(_wizard[i].$2),
+        if (i == 0)
+          TextButton.icon(
+            onPressed: () => launcher.launchUrl(Uri.parse('https://developers.facebook.com/apps'), mode: launcher.LaunchMode.externalApplication),
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text('Open developers.facebook.com'),
+          ),
+        if (extra.isNotEmpty) const SizedBox(height: 8),
+        ...extra,
+      ]);
+    }
+
+    bool canContinue(int i) => switch (i) {
+          3 => _phoneId.text.trim().isNotEmpty,
+          _ => true,
+        };
+
+    return Panel(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Text('WhatsApp Business setup', style: text.titleMedium),
+        Text('About 15 minutes. You\'ll need a computer for steps 1–5.', style: text.bodySmall),
+        Stepper(
+          physics: const NeverScrollableScrollPhysics(),
+          margin: EdgeInsets.zero,
+          currentStep: _wizardStep,
+          onStepTapped: (int i) => setState(() => _wizardStep = i),
+          onStepContinue: _wizardStep < _wizard.length - 1 && canContinue(_wizardStep)
+              ? () {
+                  setState(() => _wizardStep++);
+                  context.read<AppServices>().settings.repository.setInt('whatsapp.business.wizard_step', _wizardStep);
+                }
+              : null,
+          onStepCancel: _wizardStep > 0 ? () => setState(() => _wizardStep--) : null,
+          controlsBuilder: (BuildContext c, ControlsDetails d) => _wizardStep == _wizard.length - 1
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(children: <Widget>[
+                    FilledButton(onPressed: d.onStepContinue, child: Text(_wizardStep == 2 ? 'Skip / Continue' : 'Continue')),
+                    if (d.onStepCancel != null) TextButton(onPressed: d.onStepCancel, child: const Text('Back')),
+                  ]),
+                ),
+          steps: <Step>[
+            for (int i = 0; i < _wizard.length; i++)
+              Step(
+                title: Text(_wizard[i].$1),
+                content: body(i),
+                isActive: i <= _wizardStep,
+                state: i < _wizardStep
+                    ? StepState.complete
+                    : (i == _wizard.length - 1 && _businessOk ? StepState.complete : StepState.indexed),
+              ),
+          ],
+        ),
+      ]),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    context.read<AppServices>().settings.repository.get('whatsapp.business.wizard_step').then((String? v) {
+      final int? n = int.tryParse(v ?? '');
+      if (n != null && mounted) setState(() => _wizardStep = n.clamp(0, _wizard.length - 1));
+    });
+    _phoneId.addListener(() {
+      if (mounted) setState(() {});
+    });
     _refreshAuto();
     final AppServices s = context.read<AppServices>();
     s.whatsapp.activeType().then((WhatsAppAccountType? t) {
@@ -226,41 +396,15 @@ class _WhatsAppConnectionScreenState extends State<WhatsAppConnectionScreen> wit
           ],
           if (business) ...<Widget>[
             const SizedBox(height: AutometaSpacing.lg),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text('Setup guide (about 15 minutes, free)'),
-              children: <Widget>[
-                for (int i = 0; i < _businessGuide.length; i++)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    leading: CircleAvatar(radius: 12, child: Text('${i + 1}', style: const TextStyle(fontSize: 12))),
-                    title: Text(_businessGuide[i]),
-                  ),
-              ],
-            ),
-            const SizedBox(height: AutometaSpacing.md),
-            TextField(controller: _phoneId, decoration: const InputDecoration(labelText: 'Phone Number ID')),
-            const SizedBox(height: AutometaSpacing.md),
-            TextField(
-              controller: _token,
-              obscureText: true,
-              enableSuggestions: false,
-              autocorrect: false,
-              decoration: const InputDecoration(
-                labelText: 'System user access token',
-                helperText: 'Stored in Android secure storage. Leave blank to keep the saved token.',
-              ),
-            ),
-            const SizedBox(height: AutometaSpacing.md),
-            TextField(controller: _version, decoration: const InputDecoration(labelText: 'Graph API version', helperText: 'Meta retires versions ~2 years after release')),
+            _businessWizard(context, status),
           ],
           const SizedBox(height: AutometaSpacing.xl),
-          PrimaryAction(
-            label: status.isUsable ? 'Update connection' : 'Connect',
-            busy: _busy,
-            onPressed: _choice == null ? null : _connect,
-          ),
+          if (!business)
+            PrimaryAction(
+              label: status.isUsable ? 'Update connection' : 'Connect',
+              busy: _busy,
+              onPressed: _choice == null ? null : _connect,
+            ),
           if (r != null && status != ConnectionStatus.notConnected)
             TextButton(
               onPressed: () async {

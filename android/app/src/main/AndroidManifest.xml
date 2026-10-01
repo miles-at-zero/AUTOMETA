@@ -62,6 +62,7 @@
     <!-- Android 11+ package visibility: detect WhatsApp and open links -->
     <queries>
         <package android:name="com.whatsapp" />
+        <package android:name="com.transsion.phonemaster" />
         <package android:name="com.whatsapp.w4b" />
         <intent>
             <action android:name="android.intent.action.VIEW" />

@@ -50,6 +50,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk autometa.apk
+          git archive --format=zip --prefix=AUTOMETA/ -o autometa-source.zip HEAD
           gh release delete latest-build -y --cleanup-tag || true
-          gh release create latest-build autometa.apk --prerelease --target "$GITHUB_SHA" \
+          gh release create latest-build autometa.apk autometa-source.zip --prerelease --target "$GITHUB_SHA" \
             --title "AUTOMETA latest build" --notes "Automated build from $GITHUB_SHA. Install on Android (allow unknown sources)."

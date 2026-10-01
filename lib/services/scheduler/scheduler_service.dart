@@ -83,7 +83,12 @@ class SchedulerService {
     required this.calculator,
     required this.workflows,
     this.logSink,
+    this.pausedProvider,
   });
+
+  /// When this returns true, [syncAll] disarms instead of arming, so the
+  /// periodic maintenance wake can never undo "Pause all".
+  final Future<bool> Function()? pausedProvider;
 
   final AlarmPlatform platform;
   final ScheduleCalculator calculator;
@@ -101,6 +106,18 @@ class SchedulerService {
 
   /// Re-arms every workflow to match its stored definition.
   Future<ScheduleSyncReport> syncAll() async {
+    if (await pausedProvider?.call() ?? false) {
+      await disarmAll();
+      _emit('Scheduler sync skipped: AUTOMETA is paused');
+      return ScheduleSyncReport(
+        armed: 0,
+        disarmed: (await workflows.getAll()).length,
+        results: const <ArmResult>[],
+        platformAvailable: await platform.isAvailable,
+        batteryOptimized: !(await platform.isIgnoringBatteryOptimizations),
+        syncedAt: DateTime.now(),
+      );
+    }
     final bool available = await platform.isAvailable;
     final bool batteryOptimized = !(await platform.isIgnoringBatteryOptimizations);
     final List<Workflow> all = await workflows.getAll();
@@ -231,7 +248,13 @@ class SchedulerService {
     _emit('Disarmed $workflowId');
   }
 
+  /// Cancels by stored workflow id, not by an in-memory list, so it also
+  /// works in a fresh process (after a restart or from the alarm isolate).
   Future<void> disarmAll() async {
+    for (final Workflow workflow in await workflows.getAll()) {
+      await platform.cancel(alarmIdFor(workflow.id));
+    }
+    await platform.cancel(AlarmIds.maintenance);
     await platform.cancelAll();
     await workflows.clearAllNextRuns();
     _emit('Disarmed every workflow');

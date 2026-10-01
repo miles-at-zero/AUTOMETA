@@ -12,12 +12,14 @@ import 'data/repositories/approval_repository.dart';
 import 'data/repositories/connection_repository.dart';
 import 'data/repositories/execution_repository.dart';
 import 'data/repositories/settings_repository.dart';
+import 'services/diagnostics/diagnostics_service.dart';
 import 'data/repositories/workflow_repository.dart';
 import 'data/db/sql_engine_ports.dart';
 import 'domain/engine/engine_ports.dart';
 import 'domain/engine/step_executor.dart';
 import 'domain/engine/workflow_engine.dart';
 import 'domain/models/step.dart';
+import 'domain/models/workflow.dart';
 import 'domain/schedule/schedule_calculator.dart';
 import 'services/ai/ai_provider.dart';
 import 'services/ai/ai_service.dart';
@@ -73,6 +75,7 @@ class AppServices {
     required this.execution,
     required this.notifications,
     required this.calculator,
+    required this.diagnostics,
   });
 
   final AppDatabase database;
@@ -100,6 +103,7 @@ class AppServices {
   final ExecutionService execution;
   final NotificationService notifications;
   final ScheduleCalculator calculator;
+  final DiagnosticsService diagnostics;
 
   static final Logger _log = Logger.withTag('BOOT');
 
@@ -110,6 +114,7 @@ class AppServices {
     ApiClient? apiClient,
     AlarmPlatform? platform,
     bool enableAlarmManager = true,
+    PersonalWhatsAppAdapter? personalWhatsApp,
   }) async {
     tzdata.initializeTimeZones();
     final String? deviceZone = await _detectDeviceTimeZone(platform);
@@ -121,6 +126,7 @@ class AppServices {
       apiClient: apiClient,
       platform: platform,
       enableAlarmManager: enableAlarmManager,
+      personalWhatsApp: personalWhatsApp,
     );
     await services.settings.load();
     await services._loadAiSettings();
@@ -153,6 +159,7 @@ class AppServices {
     ApiClient? apiClient,
     AlarmPlatform? platform,
     required bool enableAlarmManager,
+    PersonalWhatsAppAdapter? personalWhatsApp,
   }) async {
     final AppDatabase db = database ?? await AppDatabase.open();
     final SecretStore secretStore = secrets ?? SecureSecretStore();
@@ -192,7 +199,7 @@ class AppServices {
     );
 
     // --- Integrations --------------------------------------------------------
-    final PersonalWhatsAppAdapter personal = PersonalWhatsAppAdapter();
+    final PersonalWhatsAppAdapter personal = personalWhatsApp ?? PersonalWhatsAppAdapter();
     final BusinessWhatsAppAdapter business = BusinessWhatsAppAdapter(
       apiClient: api,
       secrets: secretStore,
@@ -285,6 +292,7 @@ class AppServices {
       platform: alarmPlatform,
       calculator: calculator,
       workflows: workflowRepo,
+      pausedProvider: () async => settings.isPaused,
     );
 
     final ExecutionService execution = ExecutionService(
@@ -297,6 +305,11 @@ class AppServices {
       calculator: calculator,
       pausedProvider: () async => settings.isPaused,
     );
+
+    final DiagnosticsService diagnostics = DiagnosticsService(settings: settingsRepo, platform: alarmPlatform);
+    execution.alarmFireLog = (Workflow workflow, DateTime scheduledFor, Duration late) => diagnostics.record(
+          AlarmFire(label: workflow.name, scheduledFor: scheduledFor, firedAt: scheduledFor.add(late)),
+        );
 
     notifications.onTap = (String? payload) {
       _log.info('Notification tapped: $payload');
@@ -325,6 +338,7 @@ class AppServices {
       execution: execution,
       notifications: notifications,
       calculator: calculator,
+      diagnostics: diagnostics,
     );
   }
 
@@ -396,7 +410,11 @@ class AppServices {
       apiVersion: apiVersion.trim(),
       defaultTemplateLanguage: templateLanguage.trim(),
     ));
-    await whatsapp.selectType(WhatsAppAccountType.business);
+    // Only becomes the default when nothing was chosen yet, so adding Business
+    // never silently moves personal automations onto it.
+    if (await whatsapp.activeType() == null) {
+      await whatsapp.selectType(WhatsAppAccountType.business);
+    }
     await connections.refresh(IntegrationIds.whatsapp);
   }
 

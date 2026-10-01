@@ -7,6 +7,7 @@ import '../../domain/models/execution.dart';
 import '../../state/app_state.dart';
 import '../widgets/autometa_widgets.dart';
 import 'home_screen.dart';
+import '../widgets/message_ready_card.dart';
 
 /// "AUTOMETA NEEDS APPROVAL" (spec §23).
 Future<void> showApprovalSheet(BuildContext context, ApprovalTicket ticket) =>
@@ -40,6 +41,19 @@ class _ApprovalSheetState extends State<_ApprovalSheet> {
   @override
   Widget build(BuildContext context) {
     final ApprovalTicket t = widget.ticket;
+    if (isWhatsAppHandoff(t)) {
+      return SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(AutometaSpacing.lg, 0, AutometaSpacing.lg, AutometaSpacing.lg),
+          child: MessageReadyCard(
+            ticket: t,
+            busy: _busy,
+            onSend: () => _decide(true),
+            onSkip: () => _decide(false),
+          ),
+        ),
+      );
+    }
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(AutometaSpacing.xl, 0, AutometaSpacing.xl, AutometaSpacing.xl),

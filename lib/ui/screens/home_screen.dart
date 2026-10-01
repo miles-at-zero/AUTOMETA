@@ -14,6 +14,7 @@ import '../../state/app_state.dart';
 import '../app.dart';
 import '../widgets/autometa_widgets.dart';
 import 'approval_sheet.dart';
+import '../widgets/message_ready_card.dart';
 import 'execution_detail_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -55,7 +56,18 @@ class HomeScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: AutometaSpacing.lg),
                   ],
-                  for (final ApprovalTicket t in state.pendingApprovals) ...<Widget>[
+                  for (final ApprovalTicket t in state.pendingApprovals.where(isWhatsAppHandoff)) ...<Widget>[
+                    MessageReadyCard(
+                      ticket: t,
+                      onSend: () async {
+                        final ExecutionRecord? r = await state.resolveApproval(t.id, approved: true);
+                        if (context.mounted) showToast(context, r == null ? 'Could not open WhatsApp' : honestStatusLabel(r));
+                      },
+                      onSkip: () => state.resolveApproval(t.id, approved: false),
+                    ),
+                    const SizedBox(height: AutometaSpacing.md),
+                  ],
+                  for (final ApprovalTicket t in state.pendingApprovals.where((ApprovalTicket t) => !isWhatsAppHandoff(t))) ...<Widget>[
                     Panel(
                       glow: AutometaColors.secondary,
                       accentLeft: true,

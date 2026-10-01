@@ -30,7 +30,7 @@ class ExecutionService {
     required this.notifications,
     required this.calculator,
     required this.pausedProvider,
-    this.catchUpWindow = const Duration(hours: 6),
+    this.catchUpWindow = const Duration(hours: 2),
   });
 
   final WorkflowEngine engine;
@@ -64,6 +64,18 @@ class ExecutionService {
     if (!workflow.enabled) {
       _log.info('Alarm fired for disabled workflow "${workflow.name}"');
       return null;
+    }
+
+    // After a reboot or a long Doze, Android delivers overdue alarms at once.
+    // A "good morning" that is hours late is worse than none: record a SKIP.
+    final Duration late = DateTime.now().toUtc().difference(scheduledFor.toUtc());
+    await _recordAlarmFire(workflow, scheduledFor, late);
+    if (late > catchUpWindow) {
+      final String key = IdempotencyKeys.forScheduledRun(workflow: workflow, scheduledFor: scheduledFor);
+      final ExecutionRecord skipped =
+          await executions.anyForKey(key) ? (await executions.lastForWorkflow(workflow.id))! : await _recordSkipped(workflow, scheduledFor);
+      await scheduler.armWorkflow(workflow);
+      return skipped;
     }
 
     final ExecutionRecord record = await engine.execute(
@@ -232,6 +244,17 @@ class ExecutionService {
     }
 
     return outcomes;
+  }
+
+  /// Optional diagnostics hook: every alarm delivery and how late it was.
+  Future<void> Function(Workflow workflow, DateTime scheduledFor, Duration late)? alarmFireLog;
+
+  Future<void> _recordAlarmFire(Workflow workflow, DateTime scheduledFor, Duration late) async {
+    try {
+      await alarmFireLog?.call(workflow, scheduledFor, late);
+    } catch (error) {
+      _log.warn('Could not record alarm diagnostics', error);
+    }
   }
 
   Future<ExecutionRecord> _recordSkipped(Workflow workflow, DateTime slot) async {

@@ -189,8 +189,8 @@ class NotificationService {
       case ExecutionStatus.waitingApproval:
         if (!preferences.onApproval) return;
         await show(
-          title: 'AUTOMETA needs approval',
-          body: '${record.workflowName} is waiting for you',
+          title: '${record.workflowName}: message ready',
+          body: 'Tap to open WhatsApp & send. Nothing goes out until you tap Send.',
           channel: NotificationChannels.approval,
           payload: 'approval:${record.id}',
         );

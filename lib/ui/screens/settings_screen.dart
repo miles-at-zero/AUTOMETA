@@ -13,6 +13,7 @@ import '../../state/app_state.dart';
 import '../app.dart';
 import '../widgets/autometa_widgets.dart';
 import 'ai_settings_screen.dart';
+import 'reliability_screen.dart';
 import 'connections_screen.dart';
 import 'contacts_screen.dart';
 
@@ -115,79 +116,6 @@ class SettingsScreen extends StatelessWidget {
 }
 
 /// Honest explanation of Android background limits (spec §27).
-class ReliabilityScreen extends StatefulWidget {
-  const ReliabilityScreen({super.key});
-
-  @override
-  State<ReliabilityScreen> createState() => _ReliabilityScreenState();
-}
-
-class _ReliabilityScreenState extends State<ReliabilityScreen> {
-  ScheduleSyncReport? _report;
-
-  Future<void> _sync() async {
-    final ScheduleSyncReport r = await context.read<AppServices>().scheduler.syncAll();
-    if (!mounted) return;
-    await context.read<SettingsService>().refreshPlatformState();
-    setState(() => _report = r);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _sync();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final SettingsService s = context.watch<SettingsService>();
-    return Scaffold(
-      appBar: AppBar(title: const Text('Background reliability')),
-      body: ListView(padding: EdgeInsets.all(AutometaSpacing.page(context)), children: <Widget>[
-        Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          Text('How AUTOMETA runs in the background', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          const Text(
-            'Each scheduled run is registered with Android\'s AlarmManager as an exact alarm, so it can fire '
-            'even when the app is closed, and is restored after a reboot. A maintenance wake every few hours '
-            're-arms anything the system dropped and catches up missed runs from the last 6 hours; older '
-            'misses are recorded as Skipped rather than sent late.\n\n'
-            'Android does not guarantee exact timing. Doze, battery saver and some manufacturers\' task killers '
-            'can delay or cancel alarms. Force-stopping the app cancels all alarms until you open it again.',
-          ),
-        ])),
-        const SizedBox(height: AutometaSpacing.lg),
-        Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          Row(children: <Widget>[
-            StatusDot(s.batteryOptimized ? AutometaColors.warning : AutometaColors.success),
-            const SizedBox(width: 8),
-            Expanded(child: Text(s.batteryOptimized ? 'Battery optimisation is ON' : 'Battery optimisation is off')),
-          ]),
-          if (s.batteryOptimized) ...<Widget>[
-            const SizedBox(height: 8),
-            const Text('Runs may be delayed. Exempting AUTOMETA makes schedules much more punctual.'),
-            TextButton(
-              onPressed: () async {
-                await context.read<AppServices>().platform.requestIgnoreBatteryOptimizations();
-                await s.refreshPlatformState();
-              },
-              child: const Text('Open system setting'),
-            ),
-          ],
-        ])),
-        const SizedBox(height: AutometaSpacing.lg),
-        if (_report != null)
-          Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-            Text('Scheduler: ${_report!.armed} armed, ${_report!.disarmed} inactive'),
-            for (final String w in _report!.warnings) Text('• $w', style: Theme.of(context).textTheme.bodySmall),
-          ])),
-        const SizedBox(height: AutometaSpacing.lg),
-        OutlinedButton(onPressed: _sync, child: const Text('Re-sync schedules')),
-      ]),
-    );
-  }
-}
-
 /// Developer mode (spec §41 M6): live engine log.
 class DeveloperScreen extends StatelessWidget {
   const DeveloperScreen({super.key});

@@ -2,6 +2,8 @@ package dev.autometa.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlarmManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -46,9 +48,56 @@ class MainActivity : FlutterActivity() {
                     result.success(NotificationManagerCompat.from(this).areNotificationsEnabled())
                 "requestNotificationPermission" -> requestNotifications(result)
                 "deviceTimeZone" -> result.success(TimeZone.getDefault().id)
+                "deviceInfo" -> result.success(
+                    mapOf("manufacturer" to Build.MANUFACTURER, "model" to Build.MODEL, "sdk" to Build.VERSION.SDK_INT)
+                )
+                "canScheduleExactAlarms" -> {
+                    val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                    result.success(Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms())
+                }
+                "openExactAlarmSettings" -> {
+                    if (Build.VERSION.SDK_INT >= 31) {
+                        tryStart(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).setData(Uri.parse("package:$packageName")))
+                    }
+                    result.success(null)
+                }
+                "openAutostartSettings" -> result.success(openAutostart())
+                "openAppDetails" -> {
+                    tryStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:$packageName")))
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun tryStart(intent: Intent): Boolean = try {
+        startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    /**
+     * Opens the OEM "auto-start" / background-launch page. Infinix, Tecno and
+     * itel (Transsion XOS/HiOS) keep it in Phone Master; others vary by brand.
+     * Falls back to App info, where most skins expose battery/auto-launch.
+     */
+    private fun openAutostart(): Boolean {
+        val candidates = listOf(
+            ComponentName("com.transsion.phonemaster", "com.cyin.himgr.autostart.AutoStartActivity"),
+            ComponentName("com.transsion.phonemaster", "com.cyin.himgr.widget.activity.MainSettingGpActivity"),
+            ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+            ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
+            ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+            ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+        )
+        for (c in candidates) {
+            if (tryStart(Intent().setComponent(c))) return true
+        }
+        tryStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:$packageName")))
+        return false
     }
 
     @SuppressLint("BatteryLife")

@@ -3,7 +3,14 @@ import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import '../../app_services.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/logger.dart';
+import '../diagnostics/diagnostics_service.dart';
 import 'alarm_platform.dart';
+
+String formatLateness(Duration d) {
+  if (d.inHours >= 1) return '${d.inHours}h ${d.inMinutes.remainder(60)}m';
+  if (d.inMinutes >= 1) return '${d.inMinutes}m ${d.inSeconds.remainder(60)}s';
+  return '${d.inSeconds}s';
+}
 
 /// Live AlarmManager binding.
 ///
@@ -102,6 +109,34 @@ class AndroidAlarmBindings {
 @pragma('vm:entry-point')
 Future<void> automationAlarmCallback(int alarmId, Map<String, dynamic> params) async {
   final Logger log = Logger.withTag(LogTags.scheduler);
+  if (params['reason'] == 'diag_test') {
+    final DateTime fired = DateTime.now();
+    final DateTime scheduled = DateTime.tryParse('${params['scheduled_for']}') ?? fired;
+    final AppServices services = await AppServices.bootstrapForBackground();
+    try {
+      final AlarmFire fire = AlarmFire(
+        label: '${params['label'] ?? 'Reliability test'}',
+        scheduledFor: scheduled,
+        firedAt: fired,
+        test: true,
+      );
+      await services.diagnostics.record(fire);
+      await services.diagnostics.clearPendingTest();
+      final int secs = fire.late.inSeconds;
+      await services.notifications.show(
+        title: 'AUTOMETA test alarm fired',
+        body: secs <= 60
+            ? 'On time (${secs}s). Background scheduling works in this state.'
+            : 'Fired ${formatLateness(fire.late)} late. Check the Reliability screen for fixes.',
+        channel: 'autometa.completed',
+      );
+    } catch (error, stackTrace) {
+      log.error('Diagnostics alarm failed', error, stackTrace);
+    } finally {
+      await services.shutdown();
+    }
+    return;
+  }
   if (params['reason'] == 'resume') {
     final AppServices services = await AppServices.bootstrapForBackground();
     try {
