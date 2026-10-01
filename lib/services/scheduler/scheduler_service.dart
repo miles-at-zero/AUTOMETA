@@ -158,7 +158,7 @@ class SchedulerService {
   }
 
   /// Arms the next occurrence of one workflow.
-  Future<ArmResult> armWorkflow(Workflow workflow, {bool? checkAvailable}) async {
+  Future<ArmResult> armWorkflow(Workflow workflow, {bool? checkAvailable, DateTime? after}) async {
     final bool available = checkAvailable ?? await platform.isAvailable;
     final int alarmId = alarmIdFor(workflow.id);
 
@@ -178,7 +178,7 @@ class SchedulerService {
       );
     }
 
-    final DateTime? next = calculator.nextOccurrence(workflow);
+    final DateTime? next = calculator.nextOccurrence(workflow, after: after);
     if (next == null) {
       await platform.cancel(alarmId);
       await workflows.setNextRun(workflow.id, null);

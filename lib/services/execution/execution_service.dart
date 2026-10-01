@@ -74,7 +74,7 @@ class ExecutionService {
       final String key = IdempotencyKeys.forScheduledRun(workflow: workflow, scheduledFor: scheduledFor);
       final ExecutionRecord skipped =
           await executions.anyForKey(key) ? (await executions.lastForWorkflow(workflow.id))! : await _recordSkipped(workflow, scheduledFor);
-      await scheduler.armWorkflow(workflow);
+      await scheduler.armWorkflow(workflow, after: _afterSlot(scheduledFor));
       return skipped;
     }
 
@@ -88,8 +88,10 @@ class ExecutionService {
     await _armResumeIfDeferred(record);
 
     // Re-arm for the next occurrence regardless of this run's outcome, so a
-    // failure today does not silence the automation forever.
-    await scheduler.armWorkflow(workflow);
+    // failure today does not silence the automation forever. Computed from
+    // after the slot that just ran: an alarm delivered slightly early must
+    // not re-arm the same slot (which would loop until the clock passes it).
+    await scheduler.armWorkflow(workflow, after: _afterSlot(scheduledFor));
     return record;
   }
 
@@ -244,6 +246,12 @@ class ExecutionService {
     }
 
     return outcomes;
+  }
+
+  static DateTime _afterSlot(DateTime slot) {
+    final DateTime now = DateTime.now().toUtc();
+    final DateTime past = slot.toUtc().add(const Duration(seconds: 1));
+    return past.isAfter(now) ? past : now;
   }
 
   /// Optional diagnostics hook: every alarm delivery and how late it was.

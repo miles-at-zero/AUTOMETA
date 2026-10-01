@@ -190,6 +190,10 @@ class WhatsAppStepExecutor extends StepExecutor {
     if (context.isApproved(step.id)) return false;
     // Opening a conversation sends nothing, so it is not gated.
     if (step.mode == WhatsAppMode.open) return false;
+    // Personal without auto-send can only hand the message to the user, which
+    // needs them present: always show the "message ready" card, whatever
+    // the block's setting says.
+    if (adapter.accountType == WhatsAppAccountType.personal && !autoSend) return true;
     final bool? explicit = step.requiresApproval;
     if (explicit != null) return explicit;
     // Default policy: personal WhatsApp needs approval unless the user has
