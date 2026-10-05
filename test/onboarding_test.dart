@@ -197,6 +197,8 @@ void main() {
         db = await AppDatabase.openInMemory(factory: databaseFactoryFfi);
         return boot();
       }))!;
+      // The ffi in-memory database is shared until closed: isolate each test.
+      addTearDown(() => tester.runAsync(db.close));
       await tester.pumpWidget(appFor(s));
       await settle(tester);
       return s;

@@ -189,7 +189,10 @@ class _EngineStatusLine extends StatelessWidget {
   Widget build(BuildContext context) => Row(children: <Widget>[
         StatusDot(paused ? AutometaColors.warning : AutometaColors.success, pulse: !paused),
         const SizedBox(width: 8),
-        Text(paused ? 'Automation engine paused' : 'Automation engine ready', style: Theme.of(context).textTheme.bodyMedium),
+        Flexible(
+          child: Text(paused ? 'Automation engine paused' : 'Automation engine ready',
+              style: Theme.of(context).textTheme.bodyMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
       ]);
 }
 
