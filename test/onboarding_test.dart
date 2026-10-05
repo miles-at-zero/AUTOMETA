@@ -182,8 +182,17 @@ void main() {
       }
     }
 
+    /// ListView children below the fold aren't built yet: scroll to them.
+    Future<void> reveal(WidgetTester tester, Finder f) async {
+      if (f.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(f, 200, scrollable: find.byType(Scrollable).first);
+      }
+      await tester.ensureVisible(f);
+      await tester.pump();
+    }
+
     Future<void> tapKey(WidgetTester tester, String key) async {
-      await tester.ensureVisible(find.byKey(Key(key)));
+      await reveal(tester, find.byKey(Key(key)));
       await tester.pump();
       await tester.tap(find.byKey(Key(key)));
       await settle(tester);
@@ -274,7 +283,9 @@ void main() {
       await tapKey(tester, 'onboarding.continue');
       await tapKey(tester, 'onboarding.continue');
       await tapKey(tester, 'onboarding.path.templates');
+      await reveal(tester, find.text('Dad reminders'));
       expect(find.text('Dad reminders'), findsOneWidget, reason: 'Dad reminders are one template among several');
+      await reveal(tester, find.byKey(const Key('onboarding.template.daily_reminder')));
       await tapKey(tester, 'onboarding.template.daily_reminder');
       expect(find.byType(BuilderScreen), findsOneWidget);
       expect(await saved(tester, s), isEmpty);
@@ -287,6 +298,7 @@ void main() {
       await tapKey(tester, 'onboarding.path.templates');
       await tapKey(tester, 'onboarding.template.dad');
       expect(find.text('Personal WhatsApp: you tap Send'), findsOneWidget);
+      await reveal(tester, find.textContaining('never sends from your personal WhatsApp'));
       expect(find.textContaining('never sends from your personal WhatsApp'), findsOneWidget);
       await tapKey(tester, 'onboarding.dad.create');
       await settle(tester);
