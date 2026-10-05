@@ -20,6 +20,7 @@ import 'cloud_account_screen.dart';
 import 'reliability_screen.dart';
 import 'connections_screen.dart';
 import 'contacts_screen.dart';
+import 'legal_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -154,6 +155,18 @@ class SettingsScreen extends StatelessWidget {
                   if (settings.developerMode)
                     ListTile(leading: const Icon(Icons.terminal), title: const Text('Engine log'), trailing: const Icon(Icons.chevron_right), onTap: () => push(const DeveloperScreen())),
                 ]),
+              ),
+              const SizedBox(height: AutometaSpacing.xl),
+              const SectionLabel('About'),
+              Panel(
+                padding: EdgeInsets.zero,
+                child: ListTile(
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title: const Text('Legal & privacy'),
+                  subtitle: const Text('Privacy, terms, acceptable use, third parties, security, licences'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => push(const LegalScreen()),
+                ),
               ),
               const SizedBox(height: AutometaSpacing.xl),
               Center(child: Text('${AppInfo.name} ${AppInfo.version} · ${AppInfo.tagline}', style: Theme.of(context).textTheme.bodySmall)),

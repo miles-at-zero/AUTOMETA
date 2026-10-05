@@ -158,6 +158,32 @@ class CloudSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// `GET /v1/me/export`: automations, connections (no secrets), webhooks
+  /// and history as JSON.
+  Future<Json> exportData() => _wrap(() => _need().get('/v1/me/export'));
+
+  /// `DELETE /v1/me`: permanently deletes the Cloud account. The server
+  /// deletes this phone's push registration with it (ON DELETE CASCADE).
+  /// A wrong password is a 401 here and must NOT be treated as an expired
+  /// session, so it is handled before [_wrap] sees it.
+  Future<String> deleteAccount(String password) => _wrap(() async {
+        final BusinessApi a = _need();
+        late final Json r;
+        try {
+          r = asMap(await a.call('DELETE', '/v1/me', <String, dynamic>{'password': password}));
+        } on BusinessApiException catch (e) {
+          // Server: 401 'Password is incorrect.' vs an expired session (also 401).
+          if (e.status == 401 && e.message.toLowerCase().contains('password')) throw CloudException(e.message);
+          rethrow;
+        }
+        await push?.unregister((_) async {});
+        await _services.secrets.delete(_tokenKey);
+        api = null;
+        me = null;
+        notifyListeners();
+        return str(r['message']);
+      });
+
   BusinessApi _need() {
     final BusinessApi? a = api;
     if (a == null || me == null) {

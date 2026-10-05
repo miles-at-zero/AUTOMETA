@@ -312,3 +312,24 @@ test('/health exposes no secret values even when every secret is configured', as
     }
   } finally { s.close(); }
 });
+
+test('account data: export has data but no secrets; delete removes devices and blocks the session', async () => {
+  const s = await setup();
+  try {
+    const tc = await s.t('POST', '/v1/connections', { integration: 'telegram', fields: { token: TG } }, s.tok);
+    await s.t('POST', '/v1/automations', { name: 'Export me', trigger: { integration: 'autometa', key: 'schedule', schedule: { times: ['07:00'] } }, steps: [{ id: 's1', type: 'action', integration: 'telegram', action: 'send_message', connectionId: tc.id, config: { chatId: '42', text: 'hi' } }] }, s.tok);
+    await s.t('POST', '/v1/devices', { token: 'device-token-0123456789abcdef', platform: 'android' }, s.tok);
+    const ex = await s.t('GET', '/v1/me/export', undefined, s.tok);
+    assert.equal(ex.automations.length, 1);
+    assert.equal(ex.connections[0].integration, 'telegram');
+    const txt = JSON.stringify(ex);
+    assert.ok(!txt.includes(TG), 'bot token never exported');
+    assert.ok(!/secret_enc|password_hash|token_hash/.test(txt));
+    const wrong = await s.call('DELETE', '/v1/me', { password: 'nope' }, s.tok);
+    assert.equal(wrong.status, 401);
+    assert.match(wrong.body.error, /password/i, 'app distinguishes this from an expired session');
+    await s.t('DELETE', '/v1/me', { password: 'correct horse battery' }, s.tok);
+    assert.equal(s.app.db.prepare('SELECT COUNT(*) n FROM devices').get().n, 0);
+    assert.equal((await s.call('GET', '/v1/me', undefined, s.tok)).status, 401);
+  } finally { s.close(); }
+});

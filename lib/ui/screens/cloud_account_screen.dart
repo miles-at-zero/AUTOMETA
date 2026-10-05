@@ -1,4 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -6,6 +11,8 @@ import '../../business/business_api.dart';
 import '../../cloud/cloud_session.dart';
 import '../../cloud/push_client.dart';
 import '../../core/theme/design_tokens.dart';
+import '../../legal/legal_texts.dart';
+import 'legal_screen.dart';
 import '../../core/utils/formatters.dart';
 import '../widgets/autometa_widgets.dart';
 
@@ -113,7 +120,104 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
         if (mounted) showToast(context, 'Finish signing in with Google, then come back here.');
       });
 
+  /// Shows what a connection gives access to, before anything is connected.
+  Future<bool> _disclose(Json integration) async {
+    final IntegrationDisclosure? d = IntegrationDisclosure.byIntegration[str(integration['id'])];
+    if (d == null) return true;
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext c) => AlertDialog(
+        title: Text('Connect ${str(integration['name'])}?'),
+        content: SingleChildScrollView(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
+            Text('Autometa will be able to:', style: Theme.of(c).textTheme.titleSmall),
+            for (final String a in d.access) Padding(padding: const EdgeInsets.only(top: 4), child: Text('• $a')),
+            const SizedBox(height: 10),
+            Text(d.use, style: Theme.of(c).textTheme.bodySmall),
+            if (d.extra != null) ...<Widget>[const SizedBox(height: 8), Text(d.extra!, style: Theme.of(c).textTheme.bodySmall)],
+            TextButton(
+              onPressed: () => Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => const LegalScreen())),
+              child: const Text('Privacy & third-party services'),
+            ),
+          ]),
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Continue')),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _export() => _run(() async {
+        final Json data = await context.read<CloudSession>().exportData();
+        final String json = const JsonEncoder.withIndent('  ').convert(data);
+        final Directory dir = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+        final File f = File('${dir.path}/autometa-export-${DateTime.now().toIso8601String().substring(0, 10)}.json');
+        await f.writeAsString(json);
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (BuildContext c) => AlertDialog(
+            title: const Text('Export ready'),
+            content: SelectableText('Saved to:\n${f.path}\n\nIncludes your Cloud automations, connections (no secrets), '
+                'webhooks and run history.'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: json));
+                  if (c.mounted) Navigator.pop(c);
+                },
+                child: const Text('Copy JSON'),
+              ),
+              FilledButton(onPressed: () => Navigator.pop(c), child: const Text('Done')),
+            ],
+          ),
+        );
+      });
+
+  Future<void> _deleteAccount() async {
+    final TextEditingController pw = TextEditingController();
+    final TextEditingController confirm = TextEditingController();
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext c) => StatefulBuilder(
+        builder: (BuildContext c, StateSetter set) => AlertDialog(
+          title: const Text('Delete Cloud account?'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              const Text('This permanently deletes your Autometa Cloud account, all Cloud automations, connections, '
+                  'webhooks and history. Cloud automations stop immediately. This cannot be undone.\n\n'
+                  'On-device automations on this phone are not affected.'),
+              TextField(controller: pw, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
+              TextField(controller: confirm, onChanged: (_) => set(() {}), decoration: const InputDecoration(labelText: 'Type DELETE to confirm')),
+            ]),
+          ),
+          actions: <Widget>[
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AutometaColors.danger),
+              onPressed: confirm.text.trim() == 'DELETE' && pw.text.isNotEmpty ? () => Navigator.pop(c, true) : null,
+              child: const Text('Delete account'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final String password = pw.text;
+    pw.dispose();
+    confirm.dispose();
+    if (ok != true || !mounted) return;
+    await _run(() async {
+      final String msg = await context.read<CloudSession>().deleteAccount(password);
+      if (mounted) showToast(context, msg.isEmpty ? 'Account deleted' : msg);
+    });
+  }
+
   Future<void> _connect(Json integration, {String? reconnectId}) async {
+    if (reconnectId == null && !await _disclose(integration)) return;
+    if (!mounted) return;
     if (asMap(integration['auth'])['type'] == 'oauth') return _connectOAuth(integration, reconnectId: reconnectId);
     final List<Json> fields = asList(asMap(integration['auth'])['fields']);
     final Map<String, TextEditingController> ctl = <String, TextEditingController>{
@@ -213,6 +317,24 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
                 ),
                 const SizedBox(height: AutometaSpacing.lg),
                 const _PushPanel(),
+                const SizedBox(height: AutometaSpacing.lg),
+                Panel(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                    Text('Your data', style: t.titleSmall),
+                    const SizedBox(height: 4),
+                    Text('Download a copy of your Cloud data, or delete your Cloud account and everything in it.', style: t.bodySmall),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
+                      OutlinedButton.icon(onPressed: _busy ? null : _export, icon: const Icon(Icons.download_outlined), label: const Text('Export my data')),
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _deleteAccount,
+                        style: OutlinedButton.styleFrom(foregroundColor: AutometaColors.danger),
+                        icon: const Icon(Icons.delete_forever_outlined),
+                        label: const Text('Delete account'),
+                      ),
+                    ]),
+                  ]),
+                ),
                 const SizedBox(height: AutometaSpacing.lg),
                 Text('CLOUD CONNECTIONS', style: t.labelLarge?.copyWith(letterSpacing: 1.2)),
                 const SizedBox(height: 8),
