@@ -32,6 +32,8 @@ class ActivationReview {
             }
           case GmailSendStep(:final String to):
             actions.add('${indent}Sends a real email from your Gmail to ${to.isEmpty ? '…' : to}');
+          case TelegramSendStep(:final String chatId):
+            actions.add('${indent}Sends a real Telegram message from your bot to ${chatId.isEmpty ? '…' : chatId}');
           case HttpStep() || WebhookStep():
             actions.add('${indent}Calls an external URL: ${s.describe()}');
           case ConditionStep(:final List<WorkflowStep> thenSteps):

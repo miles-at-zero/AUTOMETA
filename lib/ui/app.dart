@@ -12,10 +12,10 @@ import 'screens/activity_screen.dart';
 import 'screens/automations_screen.dart';
 import 'screens/cloud_account_screen.dart';
 import 'screens/cloud_execution_screen.dart';
+import 'screens/connections_hub_screen.dart';
 import 'screens/create_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
-import 'screens/settings_screen.dart';
 
 /// Root widget.
 class AutometaApp extends StatefulWidget {
@@ -79,12 +79,20 @@ class ThemeController extends InheritedWidget {
   bool updateShouldNotify(ThemeController oldWidget) => oldWidget.mode != mode;
 }
 
-/// Bottom-navigation shell: Home · Automations · Create · Activity · Settings.
+/// Bottom-navigation shell: Home · Automations · Activity · Connections, with
+/// a "New automation" FAB on Home and Automations. Settings opens from the
+/// Connections app bar.
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
   static void goTo(BuildContext context, int index) =>
       context.findAncestorStateOfType<_AppShellState>()?.select(index);
+
+  /// Opens the create flow (templates, guided builder, blank automation).
+  static Future<void> newAutomation(BuildContext context) =>
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CreateScreen()));
+
+  static const int activityTab = 2;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -128,7 +136,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       case OpenReconnect(:final String? connectionId):
         nav.push(MaterialPageRoute<void>(builder: (_) => CloudAccountScreen(reconnectConnectionId: connectionId)));
       case OpenNotifications():
-        select(3);
+        select(AppShell.activityTab);
     }
   }
 
@@ -155,14 +163,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static const List<Widget> _pages = <Widget>[
     HomeScreen(),
     AutomationsScreen(),
-    CreateScreen(),
     ActivityScreen(),
-    SettingsScreen(),
+    ConnectionsHubScreen(),
   ];
 
   @override
   Widget build(BuildContext context) => Scaffold(
         body: IndexedStack(index: _index, children: _pages),
+        floatingActionButton: _index <= 1
+            ? FloatingActionButton.extended(
+                heroTag: 'new-automation',
+                onPressed: () => AppShell.newAutomation(context),
+                icon: const Icon(Icons.add),
+                label: const Text('New automation'),
+              )
+            : null,
         bottomNavigationBar: _AutometaNavBar(index: _index, onSelect: select),
       );
 }
@@ -180,9 +195,8 @@ class _AutometaNavBar extends StatelessWidget {
   static const List<(IconData, IconData, String)> _items = <(IconData, IconData, String)>[
     (Icons.home_outlined, Icons.home, 'Home'),
     (Icons.account_tree_outlined, Icons.account_tree, 'Automations'),
-    (Icons.add, Icons.add, 'Create'),
     (Icons.history, Icons.history, 'Activity'),
-    (Icons.settings_outlined, Icons.settings, 'Settings'),
+    (Icons.hub_outlined, Icons.hub, 'Connections'),
   ];
 
   @override
@@ -214,22 +228,8 @@ class _AutometaNavBar extends StatelessWidget {
   Widget _slot(BuildContext context, int i) {
     final (IconData icon, IconData selectedIcon, String label) = _items[i];
     final bool selected = i == index;
-    final bool isCreate = i == 2;
-    final Color color = selected || isCreate ? AutometaColors.accent : Theme.of(context).colorScheme.onSurfaceVariant;
-    final Widget glyph = isCreate
-        ? Container(
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AutometaColors.accentDeep,
-              border: Border.all(color: AutometaColors.accent.withValues(alpha: 0.5)),
-              boxShadow: <BoxShadow>[
-                BoxShadow(color: AutometaColors.accent.withValues(alpha: 0.25), blurRadius: 12),
-              ],
-            ),
-            child: Icon(Icons.add, size: 20, color: color),
-          )
-        : AnimatedContainer(
+    final Color color = selected ? AutometaColors.accent : Theme.of(context).colorScheme.onSurfaceVariant;
+    final Widget glyph = AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             decoration: BoxDecoration(

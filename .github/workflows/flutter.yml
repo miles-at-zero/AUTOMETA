@@ -51,6 +51,19 @@ jobs:
         run: |
           if [ -n "$GSJ" ]; then printf '%s' "$GSJ" > android/app/google-services.json; echo "Firebase config present: push enabled in this build"
           else echo "::notice::No GOOGLE_SERVICES_JSON secret: APK is built WITHOUT Firebase push (EXTERNAL CONFIG REQUIRED)"; fi
+      - name: production signing (optional)
+        if: always()
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            { echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore"; echo "ANDROID_KEYSTORE_PASSWORD=$KS_PASS"; echo "ANDROID_KEY_ALIAS=$KS_ALIAS"; echo "ANDROID_KEY_PASSWORD=$KEY_PASS"; } >> "$GITHUB_ENV"
+            echo "Release APK will be signed with the PRODUCTION key from secrets"
+          else echo "::notice::No ANDROID_KEYSTORE_BASE64 secret: release APK is signed with the public DEV key (not for Play Store)"; fi
       - name: build apk
         id: apk
         if: always()

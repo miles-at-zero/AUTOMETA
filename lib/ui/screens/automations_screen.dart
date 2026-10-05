@@ -40,7 +40,7 @@ class AutomationsScreen extends StatelessWidget {
               icon: Icons.account_tree_outlined,
               title: 'No automations yet',
               message: 'Describe one in plain language or start from a template.',
-              action: PrimaryAction(label: 'Create Automation', icon: Icons.add, onPressed: () => AppShell.goTo(context, 2)),
+              action: PrimaryAction(label: 'Create Automation', icon: Icons.add, onPressed: () => AppShell.newAutomation(context)),
             )
           : ListView.separated(
               padding: EdgeInsets.all(AutometaSpacing.page(context)),

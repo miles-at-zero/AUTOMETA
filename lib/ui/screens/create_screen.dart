@@ -67,6 +67,12 @@ class _CreateScreenState extends State<CreateScreen> {
       MaterialPageRoute<bool>(builder: (_) => BuilderScreen(initial: w, isPreview: true)),
     );
     if (created == true && mounted) {
+      // Opened as a route from the "New automation" button: return to where
+      // the user came from (the new automation shows in the list).
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+        return;
+      }
       setState(() {
         _parsed = null;
         _input.clear();
@@ -78,7 +84,7 @@ class _CreateScreenState extends State<CreateScreen> {
   Widget build(BuildContext context) {
     final SettingsService settings = context.watch<SettingsService>();
     return Scaffold(
-      appBar: AppBar(title: const Text('CREATE')),
+      appBar: AppBar(title: const Text('NEW AUTOMATION')),
       body: ListView(
         padding: EdgeInsets.all(AutometaSpacing.page(context)),
         children: <Widget>[

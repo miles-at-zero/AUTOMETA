@@ -273,6 +273,21 @@ class CloudSession extends ChangeNotifier {
   Future<List<Json>> notifications() => _wrap(() => _need().list('/v1/notifications'));
   Future<void> disconnect(String id) => _wrap(() => _need().delete('/v1/connections/$id'));
 
+  // ---------------------------------------------------------------- webhooks
+  Future<List<Json>> webhooks() => _wrap(() => _need().list('/v1/webhooks'));
+  /// One webhook with its linked automations and recent requests.
+  Future<Json> webhook(String id) => _wrap(() => _need().get('/v1/webhooks/$id'));
+  Future<Json> setWebhookEnabled(String id, bool enabled) =>
+      _wrap(() => _need().patch('/v1/webhooks/$id', <String, dynamic>{'enabled': enabled}));
+  /// Returns the webhook plus the new `secret`, shown to the user once.
+  Future<Json> rotateWebhookSecret(String id) => _wrap(() => _need().post('/v1/webhooks/$id/secret'));
+  Future<Json> rotateWebhookUrl(String id) => _wrap(() => _need().post('/v1/webhooks/$id/rotate-url'));
+  /// Sends a sample payload through the real receive path, marked as a test.
+  Future<Json> testWebhook(String id) => _wrap(() => _need().post('/v1/webhooks/$id/test'));
+
+  // ---------------------------------------------------------------- usage
+  Future<Json> usage() => _wrap(() => _need().get('/v1/usage'));
+
   // ---------------------------------------------------------------- automations
   Future<CloudMapping> mapping(Workflow w) async {
     final List<Json> conns = await connections();
@@ -284,6 +299,8 @@ class CloudSession extends ChangeNotifier {
     }
     final Json? gmail = conns.cast<Json?>().firstWhere(
         (Json? c) => c?['integration'] == 'gmail' && c?['status'] == 'connected', orElse: () => null);
+    final Json? tg = conns.cast<Json?>().firstWhere(
+        (Json? c) => c?['integration'] == 'telegram' && c?['status'] == 'connected', orElse: () => null);
     String? hook;
     if (w.trigger is WebhookTrigger) hook = await _webhookFor(w);
     return CloudMapper(
@@ -291,6 +308,7 @@ class CloudSession extends ChangeNotifier {
       whatsappConnectionId: wa == null ? null : str(wa['id']),
       webhookId: hook,
       gmailConnectionId: gmail == null ? null : str(gmail['id']),
+      telegramConnectionId: tg == null ? null : str(tg['id']),
     ).map(w);
   }
 

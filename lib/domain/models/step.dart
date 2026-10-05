@@ -17,7 +17,8 @@ enum StepKind {
   condition('condition', 'Condition', 'Branch with IF / ELSE'),
   delay('delay', 'Wait', 'Pause the run before continuing'),
   setVariable('set_variable', 'Set variable', 'Store a value for later blocks'),
-  gmailSend('gmail_send', 'Gmail: send email', 'Send an email from your connected Gmail (Cloud)');
+  gmailSend('gmail_send', 'Gmail: send email', 'Send an email from your connected Gmail (Cloud)'),
+  telegramSend('telegram_send', 'Telegram: send message', 'Send a message from your Telegram bot (Cloud)');
 
   const StepKind(this.wire, this.label, this.blurb);
 
@@ -138,6 +139,7 @@ sealed class WorkflowStep {
       StepKind.delay => DelayStep.fromJson(map),
       StepKind.setVariable => SetVariableStep.fromJson(map),
       StepKind.gmailSend => GmailSendStep.fromJson(map),
+      StepKind.telegramSend => TelegramSendStep.fromJson(map),
     };
   }
 
@@ -877,6 +879,60 @@ class GmailSendStep extends WorkflowStep {
       to: asString(map['to']),
       subject: asString(map['subject']),
       body: asString(map['body']),
+      label: asStringOrNull(map['label']),
+      continueOnError: asBool(map['continue_on_error']),
+    );
+  }
+}
+
+/// Sends a message from the user's own Telegram bot connected to Autometa
+/// Cloud (official Telegram Bot API). Cloud-only: the bot token is stored
+/// encrypted on the server, never on the phone. [chatId] is a numeric chat id
+/// or an @channelname; the recipient must have pressed Start on the bot.
+@immutable
+class TelegramSendStep extends WorkflowStep {
+  const TelegramSendStep({
+    required super.id,
+    this.chatId = '',
+    this.text = '',
+    this.silent = false,
+    super.label,
+    super.continueOnError,
+  });
+
+  final String chatId;
+  final String text;
+  final bool silent;
+
+  @override
+  StepKind get kind => StepKind.telegramSend;
+
+  TelegramSendStep copyWith({String? chatId, String? text, bool? silent}) => TelegramSendStep(
+        id: id,
+        chatId: chatId ?? this.chatId,
+        text: text ?? this.text,
+        silent: silent ?? this.silent,
+        label: label,
+        continueOnError: continueOnError,
+      );
+
+  @override
+  WorkflowStep copyWithId(String newId) => TelegramSendStep(
+      id: newId, chatId: chatId, text: text, silent: silent, label: label, continueOnError: continueOnError);
+
+  @override
+  String describe() => 'Telegram ${chatId.isEmpty ? '…' : chatId}: ${Formatters.preview(text, max: 32)}';
+
+  @override
+  Map<String, dynamic> configJson() => <String, dynamic>{'chat_id': chatId, 'text': text, 'silent': silent};
+
+  factory TelegramSendStep.fromJson(Object? json) {
+    final Map<String, dynamic> map = asMap(json);
+    return TelegramSendStep(
+      id: asString(map['id']),
+      chatId: asString(map['chat_id']),
+      text: asString(map['text']),
+      silent: asBool(map['silent']),
       label: asStringOrNull(map['label']),
       continueOnError: asBool(map['continue_on_error']),
     );

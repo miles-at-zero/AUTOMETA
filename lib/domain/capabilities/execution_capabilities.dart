@@ -50,6 +50,7 @@ class CapabilityIssue {
 /// support the matching execution adapter really implements.
 abstract final class ExecutionCapabilities {
   static const String _gmailDevice = 'Gmail works through Autometa Cloud (your Google sign-in is stored encrypted on the server, never on the phone). Switch this automation to Cloud.';
+  static const String _telegramDevice = 'Telegram works through Autometa Cloud (your bot token is stored encrypted on the server, never on the phone). Switch this automation to Cloud.';
   static const String _osNote = 'Runs on time only while Android allows it (battery saver, exact-alarm and notification permissions).';
 
   /// Cloud condition operators (server/src/cloud/engine.js evalRule).
@@ -104,6 +105,7 @@ abstract final class ExecutionCapabilities {
         SetVariableStep() => const Capability(CapabilitySupport.onDevice, cloudNote: 'Variables blocks run on this device for now.'),
         ConditionStep() => const Capability(CapabilitySupport.both),
         GmailSendStep() => const Capability(CapabilitySupport.cloud, cloudNote: 'Sends from the Gmail account connected to Autometa Cloud.', deviceNote: _gmailDevice),
+        TelegramSendStep() => const Capability(CapabilitySupport.cloud, cloudNote: 'Sends from your Telegram bot connected to Autometa Cloud.', deviceNote: _telegramDevice),
       };
 
   /// Block-picker level support (before the block is configured).
@@ -118,6 +120,7 @@ abstract final class ExecutionCapabilities {
         StepKind.openUrl => const Capability(CapabilitySupport.onDevice, cloudNote: 'Opening a link needs your phone.'),
         StepKind.setVariable => const Capability(CapabilitySupport.onDevice, cloudNote: 'Runs on this device for now.'),
         StepKind.gmailSend => const Capability(CapabilitySupport.cloud, cloudNote: 'Sends from your Gmail connected to Autometa Cloud.', deviceNote: _gmailDevice),
+        StepKind.telegramSend => const Capability(CapabilitySupport.cloud, cloudNote: 'Sends from your Telegram bot connected to Autometa Cloud.', deviceNote: _telegramDevice),
       };
 
   static Capability triggerType(TriggerType t) => switch (t) {

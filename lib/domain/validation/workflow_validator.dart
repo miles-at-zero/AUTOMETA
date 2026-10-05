@@ -342,6 +342,15 @@ class WorkflowValidator {
             code: 'gmail.incomplete',
           ));
         }
+      case TelegramSendStep(:final String chatId, :final String text):
+        if (chatId.trim().isEmpty || text.trim().isEmpty) {
+          issues.add(ValidationIssue(
+            severity: IssueSeverity.error,
+            message: 'Telegram block needs a chat and a message',
+            stepId: step.id,
+            code: 'telegram.incomplete',
+          ));
+        }
       case SetVariableStep(:final String name):
         if (name.trim().isEmpty) {
           issues.add(ValidationIssue(

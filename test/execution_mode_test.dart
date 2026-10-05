@@ -167,6 +167,34 @@ void main() {
       expect((m.body['trigger'] as Map<String, dynamic>)['key'], 'new_email');
       expect((m.body['steps'] as List<dynamic>).single, containsPair('action', 'send_email'));
     });
+
+    test('Telegram send is Cloud-only, needs a bot connection and maps to telegram.send_message', () {
+      const TelegramSendStep step = TelegramSendStep(id: 't', chatId: '@family', text: 'Hi {{weekday}}', silent: true);
+      final Workflow w = wf(const ScheduleTrigger(), <WorkflowStep>[step]);
+      // Round-trips through JSON storage.
+      final WorkflowStep back = WorkflowStep.fromJson(step.toJson());
+      expect(back, isA<TelegramSendStep>());
+      expect((back as TelegramSendStep).chatId, '@family');
+      expect(back.silent, isTrue);
+      // Blocked on-device, allowed in Cloud.
+      expect(ExecutionCapabilities.check(w, ExecutionMode.onDevice), isNotEmpty);
+      expect(ExecutionCapabilities.check(w, ExecutionMode.cloud), isEmpty);
+      // No connection = honest blocking issue, never a fake success.
+      final CloudMapping missing = CloudMapper(phoneFor: (_) => null).map(w);
+      expect(missing.ok, isFalse);
+      expect(missing.issues.single.label, 'Telegram');
+      final CloudMapping m = CloudMapper(phoneFor: (_) => null, telegramConnectionId: 'c_t').map(w);
+      expect(m.ok, isTrue, reason: m.issues.map((CapabilityIssue i) => i.reason).join());
+      final Map<String, dynamic> s = (m.body['steps'] as List<dynamic>).single as Map<String, dynamic>;
+      expect(s, containsPair('integration', 'telegram'));
+      expect(s, containsPair('action', 'send_message'));
+      expect(s, containsPair('connectionId', 'c_t'));
+      expect(s['config'], containsPair('chatId', '@family'));
+      expect(s['config'], containsPair('silent', 'yes'));
+      // Incomplete block is a validation error.
+      final Workflow bad = wf(const ScheduleTrigger(), <WorkflowStep>[const TelegramSendStep(id: 't')]);
+      expect(const WorkflowValidator().validate(bad).issues.any((ValidationIssue i) => i.code == 'telegram.incomplete'), isTrue);
+    });
   });
 
   group('canonical {{weekday}} variable', () {

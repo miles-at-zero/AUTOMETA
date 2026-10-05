@@ -27,15 +27,26 @@ class CloudMapper {
     this.whatsappConnectionId,
     this.webhookId,
     this.gmailConnectionId,
+    this.telegramConnectionId,
   });
 
   /// Cloud Gmail connection used by the Gmail trigger and send blocks.
   final String? gmailConnectionId;
 
+  /// Cloud Telegram bot connection used by Telegram send blocks.
+  final String? telegramConnectionId;
+
+  void _needTelegram(List<CapabilityIssue> issues, {String? stepId}) {
+    if (telegramConnectionId == null && !issues.any((CapabilityIssue i) => i.label == 'Telegram')) {
+      issues.add(CapabilityIssue(stepId: stepId, label: 'Telegram',
+          reason: 'Connect your Telegram bot in Autometa Cloud first (Connections → Cloud connections).'));
+    }
+  }
+
   void _needGmail(List<CapabilityIssue> issues, {String? stepId}) {
     if (gmailConnectionId == null && !issues.any((CapabilityIssue i) => i.label == 'Gmail')) {
       issues.add(CapabilityIssue(stepId: stepId, label: 'Gmail',
-          reason: 'Connect Gmail in Autometa Cloud first (Settings → Cloud account → Cloud connections).'));
+          reason: 'Connect Gmail in Autometa Cloud first (Connections → Cloud connections).'));
     }
   }
 
@@ -163,7 +174,7 @@ class CloudMapper {
           }
           if (whatsappConnectionId == null) {
             issues.add(CapabilityIssue(stepId: s.id, label: 'WhatsApp Business message',
-                reason: 'Connect WhatsApp Business to Autometa Cloud (Settings → Cloud account → Cloud connections).'));
+                reason: 'Connect WhatsApp Business to Autometa Cloud (Connections → Cloud connections).'));
           }
           out.add(<String, dynamic>{...base, 'type': 'action', 'integration': 'whatsapp',
             'action': templateName == null ? 'send_text' : 'send_template', 'connectionId': whatsappConnectionId,
@@ -185,6 +196,11 @@ class CloudMapper {
           out.add(<String, dynamic>{...base, 'type': 'action', 'integration': 'gmail', 'action': 'send_email',
             'connectionId': gmailConnectionId,
             'config': <String, dynamic>{'to': _vars(w, to), 'subject': _vars(w, subject), 'body': _vars(w, body)}});
+        case TelegramSendStep(:final String chatId, :final String text, :final bool silent):
+          _needTelegram(issues, stepId: s.id);
+          out.add(<String, dynamic>{...base, 'type': 'action', 'integration': 'telegram', 'action': 'send_message',
+            'connectionId': telegramConnectionId,
+            'config': <String, dynamic>{'chatId': chatId.trim(), 'text': _vars(w, text), 'silent': silent ? 'yes' : 'no'}});
         default:
           break; // Device-only blocks: reported by the capability check.
       }

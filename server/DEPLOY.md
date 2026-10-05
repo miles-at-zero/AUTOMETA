@@ -47,6 +47,29 @@ docker run -d --name autometa -p 8080:8080 -v autometa:/data --env-file .env --r
 ```
 Or bare metal: `NODE_ENV=production node --disable-warning=ExperimentalWarning src/index.js`, run under systemd with `Restart=always`.
 
+## 4b. Railway (EXTERNAL VERIFICATION REQUIRED: not deployed by CI)
+
+`server/railway.json` configures the Dockerfile build, `/health` healthcheck and a single replica.
+
+1. New Project → Deploy from GitHub repo → this repository.
+2. Service → Settings → **Root Directory: `/server`**, so Railway uses `server/Dockerfile` and `server/railway.json`.
+3. Service → **Volumes → Add volume, mount path `/data`**. Without it, the SQLite database is wiped on every deploy.
+4. Variables:
+   * `NODE_ENV=production`
+   * `SECRET_KEY` (32+ random characters; **never change it after launch**, because stored tokens are encrypted with it)
+   * `ADMIN_KEY`
+   * `PUBLIC_URL=https://<your-service>.up.railway.app` (or your custom domain, without a trailing slash)
+   * `DATABASE_PATH=/data/autometa.db` (already the image default)
+   * **`RAILWAY_RUN_UID=0`**. Railway mounts volumes root-owned and the image runs as the unprivileged `node` user, so without this the server cannot write `/data`. It exits with a clear "Cannot open database" message instead of half-starting.
+   * Optional: the Gmail, FCM and mail variables from `.env.example`.
+   Do **not** set `PORT`: Railway injects it and the server binds `0.0.0.0:$PORT`.
+5. Settings → Networking → Generate Domain. Use that HTTPS URL as `PUBLIC_URL` and as the app's `AUTOMETA_CLOUD_URL`.
+6. Keep **one replica**. The scheduler and SQLite are single-process by design.
+
+Shutdown: on redeploy Railway sends SIGTERM. The server stops accepting requests and new scheduler ticks, waits up to 10 s for an in-flight tick, closes SQLite and exits. A run whose slot passed during a short restart still fires if it is within the scheduler's grace window (`MISSED_GRACE_MS`). Older slots are recorded once as `skipped` ("Missed: the server was offline") rather than fired late, and the unique slot key prevents duplicates.
+
+Note: the Dockerfile intentionally has no `VOLUME` instruction, because Railway rejects it. With plain Docker, mount the volume explicitly (`-v autometa-data:/data`).
+
 ## 5. Health
 `GET /health` is public and returns **booleans and status words only, never secret values**. A test asserts this with every secret configured.
 ```json

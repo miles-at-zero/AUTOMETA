@@ -658,6 +658,7 @@ WorkflowStep newStep(StepKind kind, String recipient) {
     StepKind.delay => DelayStep(id: id, seconds: 1800),
     StepKind.setVariable => SetVariableStep(id: id, name: 'message', value: ''),
     StepKind.gmailSend => GmailSendStep(id: id),
+    StepKind.telegramSend => TelegramSendStep(id: id),
   };
 }
 
@@ -781,7 +782,7 @@ class _StepEditorState extends State<_StepEditor> {
           ),
           const SizedBox(height: AutometaSpacing.md),
           _field('Recipient (contact alias)', s.recipient, (String v) => _s = (_s as WhatsAppStep).copyWith(recipient: v),
-              helper: 'Numbers are stored under Settings → Contacts, never in the workflow.'),
+              helper: 'Numbers are stored under Connections → Contacts, never in the workflow.'),
           _field('Message', s.message, (String v) => _s = (_s as WhatsAppStep).copyWith(message: v), maxLines: 4),
           _field('Business template name (optional)', s.templateName ?? '',
               (String v) => _s = (_s as WhatsAppStep).copyWith(templateName: v.isEmpty ? null : v)),
@@ -902,6 +903,19 @@ class _StepEditorState extends State<_StepEditor> {
           _field('Subject', s.subject, (String v) => _s = (_s as GmailSendStep).copyWith(subject: v)),
           _field('Message', s.body, (String v) => _s = (_s as GmailSendStep).copyWith(body: v), maxLines: 5),
           Text('Sent from the Gmail account connected to Autometa Cloud. Cloud only.', style: Theme.of(context).textTheme.bodySmall),
+        ];
+      case TelegramSendStep():
+        return <Widget>[
+          _field('Chat', s.chatId, (String v) => _s = (_s as TelegramSendStep).copyWith(chatId: v),
+              helper: 'Numeric chat id or @channelname. The person must have pressed Start on your bot first.'),
+          _field('Message', s.text, (String v) => _s = (_s as TelegramSendStep).copyWith(text: v), maxLines: 5),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Send silently'),
+            value: (_s as TelegramSendStep).silent,
+            onChanged: (bool v) => setState(() => _s = (_s as TelegramSendStep).copyWith(silent: v)),
+          ),
+          Text('Sent by the Telegram bot connected to Autometa Cloud. Cloud only.', style: Theme.of(context).textTheme.bodySmall),
         ];
       case SetVariableStep():
         return <Widget>[

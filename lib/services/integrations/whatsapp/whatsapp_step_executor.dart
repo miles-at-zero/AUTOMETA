@@ -67,7 +67,7 @@ class WhatsAppStepExecutor extends StepExecutor {
     if (recipient == null || !recipient.hasNumber) {
       return StepResult.failed(
         reason: 'No phone number is stored for "${step.recipient}". '
-            'Add it under Settings → Contacts.',
+            'Add it under Connections → Contacts.',
         code: 'whatsapp.no_recipient',
       );
     }

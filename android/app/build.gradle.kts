@@ -38,18 +38,41 @@ android {
         versionName = flutter.versionName
     }
 
+    // Two SEPARATE signing configs:
+    //  * "dev": the committed development key (android/app/autometa-dev.p12).
+    //    Its password is in source on purpose: it is PUBLIC, like a debug key,
+    //    and exists only so sideloaded test builds update over each other.
+    //    Never use it for Play Store uploads.
+    //  * "production": a private key supplied ONLY through the environment
+    //    (CI secrets or a local shell): ANDROID_KEYSTORE_PATH,
+    //    ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, optional
+    //    ANDROID_KEY_PASSWORD (defaults to the store password).
+    // Set AUTOMETA_REQUIRE_PRODUCTION_SIGNING=true for store builds: the build
+    // then fails instead of silently falling back to the dev key.
+    val prodPath = System.getenv("ANDROID_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    val requireProd = System.getenv("AUTOMETA_REQUIRE_PRODUCTION_SIGNING") == "true"
+    if (requireProd && prodPath == null) {
+        throw GradleException("AUTOMETA_REQUIRE_PRODUCTION_SIGNING=true but ANDROID_KEYSTORE_PATH is not set")
+    }
     signingConfigs {
-        // Stable key so every build installs as an update over the previous one.
-        // Default: the committed DEVELOPMENT key (public, like any debug key).
-        // For Play Store, set ANDROID_KEYSTORE_PATH / ANDROID_KEYSTORE_PASSWORD
-        // (e.g. from GitHub secrets) to sign with a private key instead.
-        create("stable") {
-            val customPath = System.getenv("ANDROID_KEYSTORE_PATH")
-            storeFile = if (customPath.isNullOrBlank()) file("autometa-dev.p12") else file(customPath)
-            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "VBQK-buMV4Ua1scmLu4ETY6No7Piuzb3"
-            keyAlias = System.getenv("ANDROID_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "autometa"
+        create("dev") {
+            storeFile = file("autometa-dev.p12")
+            storePassword = "VBQK-buMV4Ua1scmLu4ETY6No7Piuzb3"
+            keyAlias = "autometa"
             keyPassword = storePassword
             storeType = "pkcs12"
+        }
+        if (prodPath != null) {
+            create("production") {
+                fun need(name: String) = System.getenv(name)?.takeIf { it.isNotBlank() }
+                    ?: throw GradleException("$name is required when ANDROID_KEYSTORE_PATH is set")
+                storeFile = file(prodPath)
+                storePassword = need("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = need("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: storePassword
+                // Accept both PKCS12 (.p12/.pfx) and legacy JKS keystores.
+                if (prodPath.endsWith(".p12") || prodPath.endsWith(".pfx")) storeType = "pkcs12"
+            }
         }
     }
 
@@ -64,10 +87,10 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("stable")
+            signingConfig = signingConfigs.getByName("dev")
         }
         release {
-            signingConfig = signingConfigs.getByName("stable")
+            signingConfig = signingConfigs.getByName(if (prodPath != null) "production" else "dev")
             isMinifyEnabled = false
             isShrinkResources = false
         }
