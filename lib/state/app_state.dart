@@ -179,6 +179,7 @@ class AppState extends ChangeNotifier {
   /// "Active" for something that isn't running anywhere. Throws
   /// [CloudException] with the blocking items.
   Future<Workflow> save(Workflow workflow) async {
+    if (workflow.enabled) await _askNotificationsOnce();
     Workflow toSave = workflow;
     if (workflow.isCloud) {
       final CloudSession? c = cloud;
@@ -214,6 +215,7 @@ class AppState extends ChangeNotifier {
   Future<void> setEnabled(String workflowId, bool enabled) async {
     final Workflow? workflow = await services.workflows.byId(workflowId);
     if (workflow == null) return;
+    if (enabled) await _askNotificationsOnce();
     if (workflow.isCloud) {
       await save(workflow.copyWith(enabled: enabled));
       return;
@@ -325,6 +327,20 @@ class AppState extends ChangeNotifier {
       await services.scheduler.syncAll();
     }
     await refresh();
+  }
+
+  /// Progressive permissions: Android's notification prompt appears the first
+  /// time the user turns an automation on (results, "message ready"), not at
+  /// first launch. Asked at most once per app session; denial never blocks.
+  bool _askedNotifications = false;
+  Future<void> _askNotificationsOnce() async {
+    if (_askedNotifications) return;
+    _askedNotifications = true;
+    try {
+      await services.notifications.ensurePermission();
+    } catch (_) {
+      // Permission UI unavailable (tests, old Android): Reliability shows status.
+    }
   }
 
   /// Creates a workflow from a gallery template and enables it if asked.

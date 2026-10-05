@@ -8,7 +8,12 @@ import '../core/theme/autometa_theme.dart';
 import '../core/theme/design_tokens.dart';
 import '../services/settings/settings_service.dart';
 import '../state/app_state.dart';
+import '../domain/capabilities/execution_capabilities.dart';
+import '../domain/models/workflow.dart';
+import '../domain/onboarding/onboarding_state.dart';
+import '../services/templates/template_gallery.dart';
 import 'screens/activity_screen.dart';
+import 'screens/builder_screen.dart';
 import 'screens/automations_screen.dart';
 import 'screens/cloud_account_screen.dart';
 import 'screens/cloud_execution_screen.dart';
@@ -92,7 +97,9 @@ class AppShell extends StatefulWidget {
   static Future<void> newAutomation(BuildContext context) =>
       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CreateScreen()));
 
+  static const int automationsTab = 1;
   static const int activityTab = 2;
+  static const int connectionsTab = 3;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -113,7 +120,34 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       // The navigator now exists: consume a tap that launched the app.
       _navigation?.attach(_open);
       context.read<CloudSession>().checkAlerts();
+      _openOnboardingIntent();
     });
+  }
+
+  /// Where the user chose to go at the end of onboarding: the real create
+  /// flow, a template opened in the real builder, Connections or Automations.
+  void _openOnboardingIntent() {
+    final OnboardingIntent? intent = context.read<SettingsService>().takeOnboardingIntent();
+    if (intent == null) return;
+    switch (intent.kind) {
+      case OnboardingIntentKind.explore:
+        break;
+      case OnboardingIntentKind.createAutomation:
+        AppShell.newAutomation(context);
+      case OnboardingIntentKind.connectApp:
+        select(AppShell.connectionsTab);
+      case OnboardingIntentKind.reviewAutomations:
+        select(AppShell.automationsTab);
+      case OnboardingIntentKind.template:
+        final AutomationTemplate? t = TemplateGallery.byId(intent.templateId ?? '');
+        if (t == null) return;
+        final SettingsService settings = context.read<SettingsService>();
+        Workflow w = t.instantiate(timeZone: settings.timeZone ?? 'UTC', recipient: settings.defaultRecipientName);
+        // Same rule as every new automation: the user's default (Cloud) when
+        // every block supports it, otherwise the mode that can run it.
+        w = w.copyWith(executionMode: ExecutionCapabilities.bestModeFor(w, settings.defaultExecution));
+        Navigator.of(context).push(MaterialPageRoute<bool>(builder: (_) => BuilderScreen(initial: w, isPreview: true)));
+    }
   }
 
   PendingNavigation? _navigation;

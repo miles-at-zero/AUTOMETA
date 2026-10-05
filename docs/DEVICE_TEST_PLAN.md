@@ -25,7 +25,7 @@ On every push, CI runs `flutter analyze`, the unit tests, `test/e2e_test.dart` a
 |---|---|---|---|
 | 1.1 | Install `autometa.apk` from the release page | Installs. Icon correct. The Settings footer shows the version | |
 | 1.2 | Install a newer build over it | Installs as an update. Automations and history kept | |
-| 1.3 | First launch | Onboarding. The notification permission prompt appears on Android 13+ | |
+| 1.3 | First launch | Welcome → How Autometa works → Choose your first step (3 screens, Skip setup available). No phone number or permission asked. The notification prompt appears on Android 13+ the first time you turn an automation on | |
 | 1.4 | Small phone + system font at largest | Bottom tab labels fit, nothing overflows on Home/Builder/Settings | |
 
 ## 2. On-device schedules (Settings → Background reliability)

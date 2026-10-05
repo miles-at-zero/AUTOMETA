@@ -129,7 +129,7 @@ class HomeScreen extends StatelessWidget {
                       ]),
                     ),
                   const SizedBox(height: AutometaSpacing.xl),
-                  PrimaryAction(label: 'Create Automation', icon: Icons.add, onPressed: () => AppShell.newAutomation(context)),
+                  PrimaryAction(label: state.workflows.isEmpty ? 'Create your first automation' : 'New automation', icon: Icons.add, onPressed: () => AppShell.newAutomation(context)),
                   const SizedBox(height: AutometaSpacing.lg),
                   Panel(
                     glow: AutometaColors.secondary,

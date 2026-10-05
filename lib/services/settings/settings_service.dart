@@ -5,6 +5,7 @@ import '../../core/utils/logger.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../domain/engine/engine_ports.dart';
 import '../../domain/models/execution_mode.dart';
+import '../../domain/onboarding/onboarding_state.dart';
 import '../notifications/notification_service.dart';
 import '../scheduler/alarm_platform.dart';
 
@@ -27,7 +28,8 @@ class SettingsService extends ChangeNotifier implements EngineStateProvider {
 
   bool _paused = false;
   String _defaultRecipient = 'Dad';
-  bool _onboardingComplete = false;
+  OnboardingState _onboarding = const OnboardingState();
+  OnboardingIntent? _pendingIntent;
   bool _developerMode = false;
   bool _notificationsPermitted = true;
   bool _batteryOptimized = true;
@@ -62,7 +64,10 @@ class SettingsService extends ChangeNotifier implements EngineStateProvider {
   @override
   bool get notificationsPermitted => _notificationsPermitted;
 
-  bool get onboardingComplete => _onboardingComplete;
+  OnboardingState get onboarding => _onboarding;
+
+  /// False while the first-run flow should be shown.
+  bool get onboardingComplete => !_onboarding.shouldShow;
   bool get developerMode => _developerMode;
   bool get batteryOptimized => _batteryOptimized;
   String? get timeZone => _timeZone;
@@ -72,7 +77,7 @@ class SettingsService extends ChangeNotifier implements EngineStateProvider {
     final Map<String, String> all = await repository.all();
     _paused = all[SettingKeys.paused] == 'true';
     _defaultRecipient = all[SettingKeys.defaultRecipientName] ?? 'Dad';
-    _onboardingComplete = all[SettingKeys.onboardingComplete] == 'true';
+    _onboarding = OnboardingState.fromSettings(all);
     _developerMode = all[SettingKeys.developerMode] == 'true';
     _notificationPreferences = NotificationPreferences.fromMap(all);
     _customVariables = await variables.all();
@@ -103,9 +108,31 @@ class SettingsService extends ChangeNotifier implements EngineStateProvider {
     notifyListeners();
   }
 
-  Future<void> setOnboardingComplete(bool value) async {
-    _onboardingComplete = value;
-    await repository.setBool(SettingKeys.onboardingComplete, value);
+  /// Leaves the first-run flow ([OnboardingOutcome.completed] or
+  /// [OnboardingOutcome.skipped]), persists it with the current flow version,
+  /// and parks [intent] for the app shell to open once.
+  Future<void> finishOnboarding(OnboardingOutcome outcome, {OnboardingIntent intent = const OnboardingIntent.explore()}) async {
+    _onboarding = OnboardingState(version: OnboardingState.currentVersion, outcome: outcome);
+    for (final MapEntry<String, String> e in _onboarding.toSettings().entries) {
+      await repository.set(e.key, e.value);
+    }
+    _pendingIntent = intent;
+    notifyListeners();
+  }
+
+  /// Returns the onboarding destination once, then forgets it.
+  OnboardingIntent? takeOnboardingIntent() {
+    final OnboardingIntent? i = _pendingIntent;
+    _pendingIntent = null;
+    return i;
+  }
+
+  /// Re-opens the first-run flow (Settings → "Show welcome tour").
+  Future<void> resetOnboarding() async {
+    _onboarding = const OnboardingState(version: OnboardingState.currentVersion);
+    for (final MapEntry<String, String> e in _onboarding.toSettings().entries) {
+      await repository.set(e.key, e.value);
+    }
     notifyListeners();
   }
 

@@ -15,7 +15,7 @@
 CI (`.github/workflows/flutter.yml`) runs analyze, test and builds a debug APK artifact.
 
 ## Real-device checklist (Android 10–15)
-1. Onboarding → Personal → enter a real number → enable Morning Dad. Edit its time to 2 min from now.
+1. Onboarding → Start from a template → Dad reminders → Personal WhatsApp, enter a real number → Create drafts. Open Morning Dad, set its time to 2 min from now and activate it.
 2. Lock the phone. At the time: approval notification appears (not a “sent” notification).
 3. Approve → WhatsApp opens with “Good morning Dad” prefilled. Activity shows *Handed to WhatsApp — you tap Send*.
 4. Trigger the same slot again (Run now is ad-hoc; to test duplicates, reboot during the minute) → Activity shows SKIPPED “Already executed”.

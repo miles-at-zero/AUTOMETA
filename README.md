@@ -21,7 +21,7 @@ Create scheduled workflows ("every day at 07:00 → WhatsApp → *Good morning D
 | AI: OpenAI-compatible, Anthropic, and labelled on-device templates (no key needed) | ✅ |
 | Natural-language creator — always previewed, never auto-activated | ✅ |
 | HTTP (GET/POST/PUT/PATCH/DELETE), outbound webhooks, clipboard, open URL, local notifications | ✅ |
-| Template gallery (Dad ×3, Morning Brief, Message Writer, Reminder, Follow-up, Weekly Summary, API Monitor, Sunday AI Summary) | ✅ |
+| Template gallery (Daily Reminder, Email Alert, Scheduled Telegram Message, Dad ×3, Morning Brief, Message Writer, Follow-up, Weekly Summary, API Monitor, Sunday AI Summary) | ✅ |
 | Email / Telegram / Slack / Notion / … | Listed as **NOT AVAILABLE** — architecture ready, not faked |
 | Inbound webhook *server* | Trigger type + tokens exist; a phone cannot host a public endpoint on its own, so this is shown as needing configuration |
 

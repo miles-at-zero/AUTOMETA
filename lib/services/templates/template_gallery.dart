@@ -235,6 +235,43 @@ class TemplateGallery {
       },
     ),
     AutomationTemplate(
+      id: 'email_alert',
+      name: 'Email Alert',
+      blurb: 'When a Gmail email mentions "invoice", get a notification',
+      category: 'Basics',
+      definition: <String, dynamic>{
+        'name': 'Email Alert',
+        'description': 'Watches your connected Gmail (Cloud) and alerts you about matching emails',
+        'execution_mode': 'cloud',
+        'trigger': <String, dynamic>{'type': 'gmail_new_email', 'query': ''},
+        'steps': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'type': 'condition',
+            'if': <String, dynamic>{'left': '{{email.subject}}', 'operator': 'contains', 'right': 'invoice'},
+            'then': <Map<String, dynamic>>[
+              <String, dynamic>{'type': 'notification', 'title': 'New invoice email', 'body': 'From {{email.from}}: {{email.subject}}'},
+            ],
+            'else': <Map<String, dynamic>>[],
+          },
+        ],
+      },
+    ),
+    AutomationTemplate(
+      id: 'scheduled_message',
+      name: 'Scheduled Telegram Message',
+      blurb: 'Every weekday at 08:30, send a Telegram message from your bot',
+      category: 'Basics',
+      definition: <String, dynamic>{
+        'name': 'Scheduled Telegram Message',
+        'description': 'Sends a message from your Telegram bot (Cloud) on a schedule',
+        'execution_mode': 'cloud',
+        'trigger': <String, dynamic>{'type': 'schedule', 'time': '08:30', 'repeat': 'weekdays'},
+        'steps': <Map<String, dynamic>>[
+          <String, dynamic>{'type': 'telegram_send', 'chat_id': '@your_channel', 'text': 'Good morning team. Stand-up in 30 minutes.'},
+        ],
+      },
+    ),
+    AutomationTemplate(
       id: 'follow_up',
       name: 'Follow-up Assistant',
       blurb: 'Notify now, wait 30 minutes, then nudge again',

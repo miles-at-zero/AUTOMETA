@@ -57,7 +57,6 @@ class SettingKeys {
   const SettingKeys._();
 
   static const String paused = 'engine.paused';
-  static const String onboardingComplete = 'onboarding.complete';
   static const String themeMode = 'ui.theme_mode';
   static const String defaultRecipientName = 'contacts.default_name';
   static const String aiProviderId = 'ai.provider_id';

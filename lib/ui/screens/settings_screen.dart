@@ -110,6 +110,15 @@ class SettingsScreen extends StatelessWidget {
                   ListTile(leading: const Icon(Icons.auto_awesome_outlined), title: const Text('AI Provider'), trailing: const Icon(Icons.chevron_right), onTap: () => push(const AiSettingsScreen())),
                   ListTile(leading: const Icon(Icons.contacts_outlined), title: const Text('Contacts'), subtitle: Text('Default recipient: ${settings.defaultRecipientName}'), trailing: const Icon(Icons.chevron_right), onTap: () => push(const ContactsScreen())),
                   ListTile(leading: const Icon(Icons.battery_alert_outlined), title: const Text('Background reliability'), trailing: const Icon(Icons.chevron_right), onTap: () => push(const ReliabilityScreen())),
+                  ListTile(
+                    leading: const Icon(Icons.waving_hand_outlined),
+                    title: const Text('Show welcome tour'),
+                    subtitle: const Text('Replay the introduction. Your automations are not changed.'),
+                    onTap: () {
+                      Navigator.of(context).popUntil((Route<dynamic> r) => r.isFirst);
+                      settings.resetOnboarding();
+                    },
+                  ),
                 ]),
               ),
               const SizedBox(height: AutometaSpacing.xl),
