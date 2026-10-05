@@ -38,3 +38,7 @@ android/app/src/main/res/mipmap-*/ic_launcher.png
 # ---- OS ----
 .DS_Store
 Thumbs.db
+
+# Firebase config: never commit (templates only)
+android/app/google-services.json
+GoogleService-Info.plist

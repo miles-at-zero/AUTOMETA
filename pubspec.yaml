@@ -35,6 +35,11 @@ dependencies:
   timezone: ^0.9.4
   flutter_timezone: ^3.0.1
 
+  # Cloud alert pushes (FCM). Needs android/app/google-services.json at build
+  # time (never committed); without it push reports "not configured".
+  firebase_core: ^4.14.0
+  firebase_messaging: ^16.7.0
+
   # --- Network ------------------------------------------------------------
   http: ^1.2.2
 

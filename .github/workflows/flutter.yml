@@ -39,6 +39,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: firebase config (optional)
+        if: always()
+        env:
+          GSJ: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GSJ" ]; then printf '%s' "$GSJ" > android/app/google-services.json; echo "Firebase config present: push enabled in this build"
+          else echo "::notice::No GOOGLE_SERVICES_JSON secret: APK is built WITHOUT Firebase push (EXTERNAL CONFIG REQUIRED)"; fi
       - name: build apk
         id: apk
         if: always()

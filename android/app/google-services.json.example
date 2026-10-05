@@ -1,0 +1,18 @@
+{
+  "_comment": "TEMPLATE ONLY. Download the real file from Firebase console → Project settings → Your apps → Android (package dev.autometa.app) and save it as android/app/google-services.json. Never commit it.",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "your-firebase-project-id",
+    "storage_bucket": "your-firebase-project-id.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+        "android_client_info": { "package_name": "dev.autometa.app" }
+      },
+      "api_key": [{ "current_key": "REPLACE_WITH_YOUR_ANDROID_API_KEY" }]
+    }
+  ],
+  "configuration_version": "1"
+}

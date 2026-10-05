@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../business/business_api.dart';
 import '../../cloud/cloud_session.dart';
+import '../../cloud/push_client.dart';
 import '../../core/theme/design_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../widgets/autometa_widgets.dart';
@@ -211,6 +212,8 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
                   ]),
                 ),
                 const SizedBox(height: AutometaSpacing.lg),
+                const _PushPanel(),
+                const SizedBox(height: AutometaSpacing.lg),
                 Text('CLOUD CONNECTIONS', style: t.labelLarge?.copyWith(letterSpacing: 1.2)),
                 const SizedBox(height: 8),
                 if (_integrations == null)
@@ -251,6 +254,63 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+/// Honest push state for this phone plus per-device alert preferences
+/// (stored on the server with the device token).
+class _PushPanel extends StatelessWidget {
+  const _PushPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    PushClient? p;
+    try {
+      p = context.watch<PushClient>();
+    } on ProviderNotFoundException {
+      return const SizedBox.shrink();
+    }
+    final PushClient push = p;
+    final TextTheme t = Theme.of(context).textTheme;
+    final Color color = switch (push.status) {
+      PushStatus.registered => AutometaColors.success,
+      PushStatus.idle => AutometaColors.neutral,
+      _ => AutometaColors.warning,
+    };
+    final bool canSetPrefs = push.status == PushStatus.registered || push.status == PushStatus.serverNotConfigured;
+    return Panel(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Row(children: <Widget>[
+          const Icon(Icons.notifications_active_outlined),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Phone alerts', style: t.titleSmall)),
+          Flexible(child: StatusPill(label: push.status.label, color: color)),
+        ]),
+        const SizedBox(height: 6),
+        Text(push.status.explanation, style: t.bodySmall),
+        if (canSetPrefs) ...<Widget>[
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Failures, pauses and reconnect requests'),
+            value: push.prefs.failures,
+            onChanged: (bool v) => push.setPrefs(push.prefs.copyWith(failures: v)),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Plan usage limits'),
+            value: push.prefs.account,
+            onChanged: (bool v) => push.setPrefs(push.prefs.copyWith(account: v)),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Messages from your automations'),
+            value: push.prefs.messages,
+            onChanged: (bool v) => push.setPrefs(push.prefs.copyWith(messages: v)),
+          ),
+        ],
+      ]),
     );
   }
 }

@@ -18,6 +18,10 @@ class NotificationChannels {
   static const String upcoming = 'autometa.upcoming';
   static const String connection = 'autometa.connection';
 
+  /// Autometa Cloud alerts (FCM pushes and the in-app alerts poll). The id
+  /// matches the server's FCM `android.notification.channel_id`.
+  static const String cloudAlerts = 'cloud_alerts';
+
   /// Raised by a `Notification` block inside a workflow.
   static const String workflow = 'autometa.workflow';
 }
@@ -150,6 +154,12 @@ class NotificationService {
       importance: Importance.defaultImportance,
     ));
     await android.createNotificationChannel(const AndroidNotificationChannel(
+      NotificationChannels.cloudAlerts,
+      'Cloud alerts',
+      description: 'Autometa Cloud: failed runs and connections that need you',
+      importance: Importance.high,
+    ));
+    await android.createNotificationChannel(const AndroidNotificationChannel(
       NotificationChannels.connection,
       'Connection problems',
       description: 'An integration stopped working',
@@ -160,6 +170,17 @@ class NotificationService {
   void Function(String? payload)? onTap;
 
   void _onTap(NotificationResponse response) => onTap?.call(response.payload);
+
+  /// Payload of the local notification whose tap launched the app from a
+  /// terminated state (cold start), or null.
+  Future<String?> launchPayload() async {
+    try {
+      final NotificationAppLaunchDetails? d = await _plugin.getNotificationAppLaunchDetails();
+      return d?.didNotificationLaunchApp == true ? d?.notificationResponse?.payload : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<bool> ensurePermission() async {
     if (await platform.notificationsPermitted) return true;
@@ -284,6 +305,7 @@ class NotificationService {
 
   static String _channelName(String channel) => switch (channel) {
         NotificationChannels.completed => 'Completed automations',
+        NotificationChannels.cloudAlerts => 'Cloud alerts',
         NotificationChannels.failed => 'Failed automations',
         NotificationChannels.approval => 'Approvals',
         NotificationChannels.upcoming => 'Upcoming automations',

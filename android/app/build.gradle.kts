@@ -4,6 +4,16 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// FCM push needs android/app/google-services.json (from the Firebase console,
+// or written by CI from the GOOGLE_SERVICES_JSON secret). It is git-ignored.
+// Without it the APK still builds; the app then reports push as
+// "Not configured in this build" and falls back to the in-app alerts poll.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.warn("google-services.json not found: building WITHOUT Firebase push (EXTERNAL CONFIG REQUIRED)")
+}
+
 android {
     namespace = "dev.autometa.app"
     compileSdk = 36

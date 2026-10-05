@@ -27,16 +27,44 @@ Per-device preferences `{failures, account, messages}` are sent with
 **EXTERNAL CONFIG REQUIRED:** set `FCM_SERVICE_ACCOUNT_JSON` (a Firebase
 project service account). `GET /health` reports `cloud.push`.
 
-## Android app (current)
-* **Implemented:** in-app fallback. On app start and every resume the app
-  fetches `/v1/notifications` and shows new push-worthy items as Android
-  notifications. Tapping one opens the Cloud run detail (`cloudexec:<id>`) or
-  the Cloud connections screen (`cloudreconnect:<id>`).
-* **Not implemented (EXTERNAL CONFIG REQUIRED):** a real FCM client
-  (`firebase_messaging`) that receives pushes while the app is closed. It needs
-  a Firebase project and `android/app/google-services.json`, which can't be
-  committed without the owner's Firebase project. Once added, register the token
-  with `POST /v1/devices` after sign-in and route `data.executionId` to
-  `CloudExecutionScreen`.
-* Opening the app from a terminated state via a notification tap isn't routed
-  yet; the app opens on Home.
+## Android app
+
+Three separate states. Only the first is claimed:
+
+| State | Status |
+|---|---|
+| Push client implemented | **CODE COMPLETE**: unit-tested with a fake transport and mocked server payloads (`test/push_test.dart`). Compiled by CI. |
+| Firebase configured | **EXTERNAL CONFIG REQUIRED**: no `google-services.json` in the repository or in CI by default. |
+| Real-device verified | **REAL DEVICE TEST REQUIRED**: never done. See `docs/DEVICE_TEST_PLAN.md` § Push. |
+
+### What the code does
+* `lib/cloud/push_client.dart` (`PushClient`):
+  * initialises Firebase; asks for notification permission;
+  * calls `getToken()` and registers it with `POST /v1/devices {token, platform, prefs}` after sign-in;
+  * re-registers on `onTokenRefresh` and on preference changes;
+  * calls `DELETE /v1/devices` on sign-out.
+* Foreground: FCM shows nothing by itself, so the message is re-posted as a local notification on the `cloud_alerts` channel. It carries the deep link and a stable id derived from `notificationId`.
+* Background: Android shows the notification on its own, using the server's `channel_id: cloud_alerts`; the manifest names the same default channel and icon. A tap arrives through `onMessageOpenedApp`. The top-level background handler is a deliberate no-op.
+* Terminated (cold start): `main()` reads the FCM `getInitialMessage()` and the local `getNotificationAppLaunchDetails()` before `runApp`. The destination is parked in `PendingNavigation` and consumed once, after the app shell's first frame (`lib/ui/app.dart`):
+  * `execution` → `CloudExecutionScreen(executionId)`;
+  * `reconnect` → the Cloud account / connections screen, which has the Reconnect buttons;
+  * anything else → the Activity tab.
+* Statuses shown in Cloud account → Phone alerts:
+  * *Not configured in this build*: no Firebase config.
+  * *Notifications blocked*: permission denied.
+  * *Server push not configured*: the device is registered, but the server lacks `FCM_SERVICE_ACCOUNT_JSON`.
+  * *Push alerts on*: registered and the server can push.
+  * *Push unavailable*: registration failed.
+* Preferences: three switches (failures/pauses/reconnects; usage limits; automation messages). They are stored locally and sent with the device registration; the server enforces them.
+* Polling fallback: the in-app alerts poll (app start and resume) stays on. While push is fully active, it only advances its marker, so alerts aren't shown twice; otherwise, it shows them.
+
+### Enabling push (owner steps)
+1. Create a Firebase project and add an Android app with package `dev.autometa.app`.
+2. Download `google-services.json` and either:
+   * place it at `android/app/google-services.json` for local builds (it is git-ignored; see the `.example` template); or
+   * store its full contents as the GitHub Actions secret `GOOGLE_SERVICES_JSON`. CI writes the file before building.
+3. Create a service account with the Firebase Cloud Messaging API enabled. Set its JSON as `FCM_SERVICE_ACCOUNT_JSON` on the server.
+4. Rebuild the APK, sign in, and open Cloud account → Phone alerts. It must say "Push alerts on".
+5. Run the device test plan's push section.
+
+Without step 2, the Gradle build logs a warning and builds without the google-services plugin. The app then reports "Not configured in this build".

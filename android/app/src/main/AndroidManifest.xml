@@ -57,6 +57,15 @@
         </receiver>
 
         <meta-data android:name="flutterEmbedding" android:value="2" />
+        <!-- FCM: Cloud alerts shown by the system while the app is in the
+             background use this channel and icon (server sends channel_id
+             "cloud_alerts" too). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="cloud_alerts" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
     </application>
 
     <!-- Android 11+ package visibility: detect WhatsApp and open links -->

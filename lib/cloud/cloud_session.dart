@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../app_services.dart';
@@ -7,6 +9,8 @@ import '../domain/capabilities/execution_capabilities.dart';
 import '../domain/models/trigger.dart';
 import '../domain/models/workflow.dart';
 import 'cloud_mapper.dart';
+import 'push_client.dart';
+import 'push_routing.dart';
 
 /// Thrown when a Cloud operation can't complete; carries the blocking items.
 class CloudException implements Exception {
@@ -40,6 +44,9 @@ class CloudSession extends ChangeNotifier {
 
   BusinessApi? api;
   Json? me;
+
+  /// Device push (FCM). Null in tests / when not wired.
+  PushClient? push;
   String serverUrl = '';
   bool ready = false;
   String? error;
@@ -73,6 +80,20 @@ class CloudSession extends ChangeNotifier {
     me = await a.get('/v1/me');
     error = null;
     notifyListeners();
+    unawaited(registerPush());
+  }
+
+  /// Registers this phone's push token with `POST /v1/devices`.
+  Future<void> registerPush() async {
+    final PushClient? p = push;
+    final BusinessApi? a = api;
+    if (p == null || a == null) return;
+    // Once per session; token refreshes re-register by themselves.
+    if (p.status != PushStatus.idle && p.status != PushStatus.error) return;
+    await p.register((String token, PushPrefs prefs) async {
+      final Json r = await a.post('/v1/devices', <String, dynamic>{'token': token, 'platform': 'android', 'prefs': prefs.toJson()});
+      return r['pushConfigured'] == true;
+    });
   }
 
   static String cleanUrl(String url) {
@@ -107,6 +128,8 @@ class CloudSession extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    final BusinessApi? a = api;
+    if (a != null) await push?.unregister((String token) => a.call('DELETE', '/v1/devices', <String, dynamic>{'token': token}));
     try {
       await api?.post('/v1/auth/logout');
     } catch (_) {/* best effort */}
@@ -153,10 +176,13 @@ class CloudSession extends ChangeNotifier {
   /// In-app fallback for device push: on app start/resume, shows important
   /// Cloud notifications that arrived since the last check as Android
   /// notifications with a deep link (`cloudexec:<id>` / `cloudreconnect:<id>`).
-  /// Real device push (FCM) needs Firebase config in the app build: EXTERNAL
-  /// CONFIG REQUIRED (docs/NOTIFICATIONS.md).
+  /// Device push (FCM) needs Firebase config in the app build and on the
+  /// server: EXTERNAL CONFIG REQUIRED (docs/NOTIFICATIONS.md). While push is
+  /// active this poll only advances its marker (no duplicates); otherwise it is
+  /// the fallback that shows the alerts.
   Future<int> checkAlerts() async {
     if (!signedIn) return 0;
+    final bool pushActive = push?.active ?? false;
     try {
       final List<Json> list = await _need().list('/v1/notifications');
       final int now = DateTime.now().millisecondsSinceEpoch;
@@ -167,18 +193,18 @@ class CloudSession extends ChangeNotifier {
         final int at = intOf(n['createdAt']);
         if (at <= seen || n['read'] == true || !alertKinds.contains(str(n['kind']))) continue;
         if (at > newest) newest = at;
+        if (pushActive) continue;
         final Json action = asMap(n['action']);
-        final String payload = switch (str(action['type'])) {
-          'execution' => 'cloudexec:${str(action['executionId'])}',
-          'reconnect' => 'cloudreconnect:${str(action['connectionId'])}',
-          _ => 'cloud:${str(n['id'])}',
-        };
+        final PushDestination d = PushDestination.fromData(<String, dynamic>{
+              'actionType': action['type'], 'executionId': action['executionId'], 'connectionId': action['connectionId'],
+            }) ??
+            OpenNotifications(str(n['id']));
         await _services.notifications.show(
           title: '☁️ ${str(n['title'])}',
           body: str(n['body']),
-          channel: NotificationChannels.failed,
-          payload: payload,
-          id: str(n['id']).hashCode & 0x7fffffff,
+          channel: NotificationChannels.cloudAlerts,
+          payload: d.toLocalPayload(),
+          id: stableNotificationId(str(n['id'])),
         );
         shown++;
       }

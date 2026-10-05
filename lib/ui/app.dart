@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_services.dart';
 import '../cloud/cloud_session.dart';
+import '../cloud/push_routing.dart';
 import '../core/theme/autometa_theme.dart';
 import '../core/theme/design_tokens.dart';
 import '../services/settings/settings_service.dart';
@@ -96,27 +97,44 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    context.read<AppServices>().notifications.onTap = _openPayload;
+    _navigation = _maybeNavigation();
+    context.read<AppServices>().notifications.onTap =
+        (String? payload) => (_navigation ?? (PendingNavigation()..attach(_open))).open(PushDestination.fromLocalPayload(payload));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<CloudSession>().checkAlerts();
+      if (!mounted) return;
+      // The navigator now exists: consume a tap that launched the app.
+      _navigation?.attach(_open);
+      context.read<CloudSession>().checkAlerts();
     });
   }
 
-  /// Deep links from Cloud alerts: open the failed run or the reconnect screen.
-  void _openPayload(String? payload) {
-    if (!mounted || payload == null) return;
+  PendingNavigation? _navigation;
+
+  PendingNavigation? _maybeNavigation() {
+    try {
+      return Provider.of<PendingNavigation>(context, listen: false);
+    } on ProviderNotFoundException {
+      return null; // Widget tests without push wiring.
+    }
+  }
+
+  /// Deep links from Cloud alerts: open the run, or the reconnect screen.
+  void _open(PushDestination d) {
+    if (!mounted) return;
     final NavigatorState nav = Navigator.of(context);
-    if (payload.startsWith('cloudexec:')) {
-      nav.push(MaterialPageRoute<void>(builder: (_) => CloudExecutionScreen(executionId: payload.substring(10))));
-    } else if (payload.startsWith('cloudreconnect:')) {
-      nav.push(MaterialPageRoute<void>(builder: (_) => const CloudAccountScreen()));
-    } else if (payload.startsWith('cloud:')) {
-      select(3);
+    switch (d) {
+      case OpenExecution(:final String executionId):
+        nav.push(MaterialPageRoute<void>(builder: (_) => CloudExecutionScreen(executionId: executionId)));
+      case OpenReconnect():
+        nav.push(MaterialPageRoute<void>(builder: (_) => const CloudAccountScreen()));
+      case OpenNotifications():
+        select(3);
     }
   }
 
   @override
   void dispose() {
+    _navigation?.detach();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
