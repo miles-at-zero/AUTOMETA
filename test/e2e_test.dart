@@ -20,6 +20,7 @@ import 'package:autometa/services/integrations/whatsapp/personal_whatsapp_adapte
 import 'package:autometa/services/integrations/whatsapp/whatsapp_models.dart';
 import 'package:autometa/services/net/api_client.dart';
 import 'package:autometa/services/scheduler/alarm_platform.dart';
+import 'package:autometa/state/app_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -264,6 +265,18 @@ void main() {
   test('personal account set to "send" is refused by the validator and the adapter', () async {
     final Workflow bad = dad('wf-bad', 'Silent send', '20:00', 'Hi', account: 'personal');
     expect(const WorkflowValidator().validate(bad).isValid, isFalse);
+  });
+
+  test('pre-activation: a "send" block that would use Personal WhatsApp is explained, not converted', () async {
+    final AppState state = AppState(services: app);
+    // Default account is Personal in this setup → explained before activation.
+    final List<String> p = await state.whatsappSendProblems(dad('wf-x', 'X', '20:00', 'Hi', account: null).copyWith(executionMode: ExecutionMode.onDevice));
+    expect(p.single, contains('Personal WhatsApp'));
+    expect(p.single, contains('Prepare message'));
+    expect(await state.whatsappSendProblems(dad('wf-y', 'Y', '20:00', 'Hi', account: 'personal').copyWith(executionMode: ExecutionMode.onDevice)), hasLength(1));
+    // Explicit Business with a saved config → fine. Prepare blocks never flagged.
+    expect(await state.whatsappSendProblems(dad('wf-z', 'Z', '20:00', 'Hi').copyWith(executionMode: ExecutionMode.onDevice)), isEmpty);
+    expect(await state.whatsappSendProblems(dad('wf-p', 'P', '20:00', 'Hi', account: 'personal', mode: WhatsAppMode.prepare).copyWith(executionMode: ExecutionMode.onDevice)), isEmpty);
   });
 
   test('Business API outage fails clearly; a later retry succeeds', () async {

@@ -19,7 +19,11 @@ import '../widgets/autometa_widgets.dart';
 /// Autometa Cloud account: sign in / sign up / reset, and the Cloud
 /// connections (credentials live encrypted on the server, used by Cloud runs).
 class CloudAccountScreen extends StatefulWidget {
-  const CloudAccountScreen({super.key});
+  const CloudAccountScreen({this.reconnectConnectionId, super.key});
+
+  /// From a "reconnect" alert: once connections load, start the reconnect
+  /// flow for this connection directly.
+  final String? reconnectConnectionId;
 
   @override
   State<CloudAccountScreen> createState() => _CloudAccountScreenState();
@@ -48,7 +52,20 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
         _loadConnections();
       }
     });
-    if (context.read<CloudSession>().signedIn) _loadConnections();
+    if (context.read<CloudSession>().signedIn) _loadConnections().then((_) => _autoReconnect());
+  }
+
+  bool _autoReconnectDone = false;
+
+  Future<void> _autoReconnect() async {
+    final String? id = widget.reconnectConnectionId;
+    if (id == null || _autoReconnectDone || !mounted) return;
+    _autoReconnectDone = true;
+    final Json? conn = _connections?.cast<Json?>().firstWhere((Json? c) => c?['id'] == id, orElse: () => null);
+    if (conn == null) return; // Deleted meanwhile: the list is shown instead.
+    final Json? integ = _integrations?.cast<Json?>().firstWhere((Json? i) => i?['id'] == conn['integration'], orElse: () => null);
+    if (integ == null || integ['available'] == false) return;
+    await _connect(integ, reconnectId: id);
   }
 
   @override

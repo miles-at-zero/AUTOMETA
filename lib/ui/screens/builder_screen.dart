@@ -115,6 +115,21 @@ class _BuilderScreenState extends State<BuilderScreen> {
       showToast(context, v.summary, color: AutometaColors.danger.withValues(alpha: 0.3));
       return;
     }
+    if (enable && !_wf.isCloud) {
+      final List<String> wa = await context.read<AppState>().whatsappSendProblems(_wf);
+      if (!mounted) return;
+      if (wa.isNotEmpty) {
+        await showDialog<void>(
+          context: context,
+          builder: (BuildContext c) => AlertDialog(
+            title: const Text('Can\'t send automatically'),
+            content: Text(wa.join('\n\n')),
+            actions: <Widget>[FilledButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
+          ),
+        );
+        return;
+      }
+    }
     if (enable && !await _review()) return;
     if (!mounted) return;
     setState(() => _saving = true);

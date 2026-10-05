@@ -1,3 +1,6 @@
+import '../domain/models/step.dart';
+import '../services/integrations/whatsapp/whatsapp_models.dart';
+import '../services/integrations/whatsapp/whatsapp_adapter.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -387,5 +390,31 @@ class AppState extends ChangeNotifier {
     unawaited(_subscription?.cancel());
     _subscription = null;
     super.dispose();
+  }
+
+  /// Pre-activation check for on-device WhatsApp "send" blocks: automatic
+  /// sending only exists through WhatsApp Business. If the block would use
+  /// Personal WhatsApp, or Business isn't set up, explain it now, before
+  /// activation, instead of failing at run time. Nothing is ever converted to
+  /// "prepare". (Cloud sends are checked by the Cloud mapper/validator.)
+  Future<List<String>> whatsappSendProblems(Workflow w) async {
+    if (w.isCloud) return const <String>[];
+    final List<String> out = <String>[];
+    Future<void> walk(List<WorkflowStep> steps) async {
+      for (final WorkflowStep s in steps) {
+        if (s is ConditionStep) await walk(s.thenSteps);
+        if (s is! WhatsAppStep || s.mode != WhatsAppMode.send) continue;
+        final WhatsAppAdapter? a = await services.whatsapp.adapterFor(s.account);
+        if (a == null || a.accountType == WhatsAppAccountType.personal) {
+          out.add('"${s.describe()}" uses Personal WhatsApp, which can\'t send automatically. '
+              'Switch the block to "Prepare message" (you tap Send), or choose the WhatsApp Business account.');
+        } else if (!await a.canSendNow()) {
+          out.add('"${s.describe()}" needs WhatsApp Business, which isn\'t set up. Connect it in Connections → WhatsApp.');
+        }
+      }
+    }
+
+    await walk(w.steps);
+    return out;
   }
 }

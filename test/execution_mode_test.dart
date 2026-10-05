@@ -188,6 +188,19 @@ void main() {
     });
   });
 
+  test('device-only variables are reported before saving to Cloud (never silently empty)', () {
+    final Workflow w = wf(const ScheduleTrigger(), <WorkflowStep>[
+      const NotificationStep(id: 'n', title: 'Hi', body: '{{greeting}} Dad, it is {{weekday}} {{time}}'),
+      const ConditionStep(id: 'c', condition: Condition(left: '{{day_short}}', operator: ConditionOperator.equals, right: 'Sun'), thenSteps: <WorkflowStep>[notify]),
+    ]);
+    final CloudMapping m = CloudMapper(phoneFor: (_) => null).map(w);
+    final List<CapabilityIssue> v = m.issues.where((CapabilityIssue i) => i.label == 'Variables').toList();
+    expect(v.length, 2);
+    expect(v[0].reason, contains('{{greeting}}'));
+    expect(v[0].reason, isNot(contains('{{weekday}}')));
+    expect(v[1].reason, contains('{{day_short}}'));
+  });
+
   group('V1 conditions + Gmail (domain)', () {
     test('multi-rule condition round-trips; legacy single rule still parses', () {
       const ConditionStep c = ConditionStep(

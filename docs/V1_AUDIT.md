@@ -32,7 +32,7 @@ EXTERNAL CONFIG REQUIRED · DEFERRED FROM V1.
 | 21 | Invalid variable / unsupported operator / empty | MISSING (op silently coerced; mode coerced to `all`) | COMPLETE | Server validator rejects these. The app validator blocks empty conditions | — | cloud/validate.js, api.js cleanSteps |
 | 22 | Condition results in test/logs | PARTIAL (✓/✕ without values) | COMPLETE | `(was "actual")` / `(field not available in this run)` | — | engine.js |
 | 23 | ELSE in Cloud | MISSING | **DEFERRED FROM V1** | Blocked with an explanation in the app | no | execution_capabilities |
-| 24 | WhatsApp personal vs Business separation | PARTIAL: neutral labels ("Send automatically", "Prepare message"); dead `sentFromPhone` state from the removed auto-send build ("AUTOMETA pressed Send") | COMPLETE | Labels: "Personal WhatsApp: prepare (you tap Send)" / "WhatsApp Business: send automatically (official API)". `sentFromPhone` removed. The Personal "send" mode stays unsupported everywhere | yes, fixed | step.dart, whatsapp_* |
+| 24 | WhatsApp personal vs Business separation | PARTIAL: stale auto-send copy and dead `autoSend` branch remained | **COMPLETE** | Personal: prepare → open WhatsApp → user taps Send. Business: automatic sending only via the official API. No auto-send copy, `autoSend` branch or `sentFromPhone` left (repo-wide search). A personal "send" is explained before activation (`whatsappSendProblems`) and fails visibly at run time (`whatsapp.send_unavailable`); it is never converted to prepare | yes, fixed (cc87004, final cleanup) | step.dart, whatsapp_*, app_state.dart, builder_screen.dart |
 | 25 | No silent personal → Business migration | COMPLETE | COMPLETE | The mapper only maps `mode==send`; prepare stays on-device | — | cloud_mapper |
 | 26 | Dad reminders | COMPLETE | COMPLETE | Templates use **Personal WhatsApp prepare** (on-device, you tap Send) | — | template_gallery.dart |
 | 27 | Execution mode UX (☁️/📱, Cloud default for new, legacy kept) | COMPLETE | COMPLETE | Verified in tests | — | execution_mode_test |
@@ -72,3 +72,20 @@ Flutter (CI): capabilities, mapper (AND/OR, Gmail), legacy migration, personal W
 | Export / delete account UI | CODE COMPLETE (server-tested) / REAL DEVICE TEST REQUIRED | Cloud account → Your data |
 | Integration disclosures, activation review | CODE COMPLETE | `legal_texts.dart`, `activation_review.dart` + test |
 | Deployment | DEPLOYMENT REQUIRED | server/DEPLOY.md. Docker is not built or tested. |
+
+
+## Final code cleanup (before manual setup)
+
+| Item | Status | Evidence |
+|---|---|---|
+| 1. Personal WhatsApp auto-send remnants | COMPLETE | Repo-wide search for auto-send / autoSend / sentFromPhone / "presses Send" / accessibility sending: the only hits are docs and a Gradle comment stating the feature was removed and is unsupported, plus unrelated Material/Keychain "accessibility" API names |
+| 2. `{{weekday}}` canonical | COMPLETE | Builder, mapper, server validator and engine, tests and docs. `{{day}}` is an explicit alias |
+| 3. Personal "send" explained before activation | COMPLETE | `AppState.whatsappSendProblems` blocks activation with an explanation (e2e test). Never converted to prepare |
+| 4. Terminated-app deep link | COMPLETE (mock-tested) | `PendingNavigation`. A reconnect alert now opens that connection's reconnect flow directly |
+| Device-only variables in Cloud | COMPLETE | The mapper reports e.g. `{{greeting}}` before saving (test) |
+
+### Remaining CODE blockers
+None known.
+
+### Remaining EXTERNAL (not code)
+Deployment, Google OAuth + verification, Firebase config, Meta WhatsApp Business, private signing key, legal review, real-device test plan.

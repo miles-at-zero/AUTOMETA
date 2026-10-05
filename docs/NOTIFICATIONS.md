@@ -47,7 +47,7 @@ Three separate states. Only the first is claimed:
 * Background: Android shows the notification on its own, using the server's `channel_id: cloud_alerts`; the manifest names the same default channel and icon. A tap arrives through `onMessageOpenedApp`. The top-level background handler is a deliberate no-op.
 * Terminated (cold start): `main()` reads the FCM `getInitialMessage()` and the local `getNotificationAppLaunchDetails()` before `runApp`. The destination is parked in `PendingNavigation` and consumed once, after the app shell's first frame (`lib/ui/app.dart`):
   * `execution` → `CloudExecutionScreen(executionId)`;
-  * `reconnect` → the Cloud account / connections screen, which has the Reconnect buttons;
+  * `reconnect` → the Cloud account screen, which immediately opens the Reconnect flow for that connection;
   * anything else → the Activity tab.
 * Statuses shown in Cloud account → Phone alerts:
   * *Not configured in this build*: no Firebase config.

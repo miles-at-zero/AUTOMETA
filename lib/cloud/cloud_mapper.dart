@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../domain/capabilities/execution_capabilities.dart';
 import '../domain/engine/variable_resolver.dart';
 import '../domain/models/condition.dart';
@@ -51,6 +53,7 @@ class CloudMapper {
     final Map<String, dynamic>? trigger = _trigger(w.trigger, issues);
     final List<Map<String, dynamic>> steps = <Map<String, dynamic>>[];
     _steps(w, w.steps, steps, issues);
+    _deviceOnlyVariables(steps, issues);
     return CloudMapping(<String, dynamic>{
       'name': w.name,
       'description': w.description,
@@ -98,6 +101,34 @@ class CloudMapper {
         };
       default:
         return null; // Already reported by the capability check.
+    }
+  }
+
+  /// Variable roots the Cloud engine provides (server/src/cloud/validate.js
+  /// BASE_ROOTS + trigger data). Anything else (e.g. {{greeting}}) exists only
+  /// on the phone and would resolve to empty text in Cloud, so it is reported
+  /// before saving instead of silently producing a different message.
+  static const Set<String> cloudRoots = <String>{
+    'trigger', 'payload', 'headers', 'date', 'time', 'weekday', 'execution', 'steps', 'email',
+  };
+
+  void _deviceOnlyVariables(List<Map<String, dynamic>> steps, List<CapabilityIssue> issues) {
+    for (final Map<String, dynamic> s in steps) {
+      final Set<String> bad = <String>{};
+      final String text = jsonEncode(<Object?>[s['config'], s['rules']]);
+      for (final RegExpMatch m in RegExp(r'\{\{\s*([\w.-]+)').allMatches(text)) {
+        final String root = m.group(1)!.split('.').first;
+        if (!cloudRoots.contains(root)) bad.add('{{${m.group(1)}}}');
+      }
+      for (final Map<String, dynamic> r in (s['rules'] as List<dynamic>? ?? const <dynamic>[]).cast<Map<String, dynamic>>()) {
+        final String f = '${r['field']}';
+        if (f.isNotEmpty && !cloudRoots.contains(f.split('.').first)) bad.add('{{$f}}');
+      }
+      if (bad.isNotEmpty) {
+        issues.add(CapabilityIssue(stepId: '${s['id']}', label: 'Variables',
+            reason: '${bad.join(', ')} only work on this device. In Cloud use {{date}}, {{time}}, {{weekday}}, '
+                '{{payload.…}} or {{email.…}}, or run this automation on this device.'));
+      }
     }
   }
 

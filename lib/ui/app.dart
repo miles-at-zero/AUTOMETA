@@ -125,8 +125,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     switch (d) {
       case OpenExecution(:final String executionId):
         nav.push(MaterialPageRoute<void>(builder: (_) => CloudExecutionScreen(executionId: executionId)));
-      case OpenReconnect():
-        nav.push(MaterialPageRoute<void>(builder: (_) => const CloudAccountScreen()));
+      case OpenReconnect(:final String? connectionId):
+        nav.push(MaterialPageRoute<void>(builder: (_) => CloudAccountScreen(reconnectConnectionId: connectionId)));
       case OpenNotifications():
         select(3);
     }
