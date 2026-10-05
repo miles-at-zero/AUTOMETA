@@ -197,7 +197,7 @@ void main() {
     final List<CapabilityIssue> v = m.issues.where((CapabilityIssue i) => i.label == 'Variables').toList();
     expect(v.length, 2);
     expect(v[0].reason, contains('{{greeting}}'));
-    expect(v[0].reason, isNot(contains('{{weekday}}')));
+    expect(v[0].reason, startsWith('{{greeting}} only'), reason: '{{weekday}} / {{time}} are Cloud variables, not flagged');
     expect(v[1].reason, contains('{{day_short}}'));
   });
 
