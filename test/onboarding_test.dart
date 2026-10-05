@@ -301,7 +301,10 @@ void main() {
       await reveal(tester, find.textContaining('never sends from your personal WhatsApp'));
       expect(find.textContaining('never sends from your personal WhatsApp'), findsOneWidget);
       await tapKey(tester, 'onboarding.dad.create');
-      await settle(tester);
+      // Onboarding finishes only after every draft is saved (real SQLite I/O).
+      for (int i = 0; i < 40 && find.byType(AppShell).evaluate().isEmpty; i++) {
+        await settle(tester);
+      }
       final List<Workflow> ws = await saved(tester, s);
       expect(ws.map((Workflow w) => w.name).toSet(), <String>{'Morning Dad', 'Evening Dad', 'Night Dad'});
       for (final Workflow w in ws) {
