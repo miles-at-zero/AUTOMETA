@@ -237,7 +237,7 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
                                 Text(conn == null ? str(i['description']) : '${str(conn['identity'])} · ${status.replaceAll('_', ' ')}',
                                     style: t.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
                                 if (!available)
-                                  Text('Not available on this server: ${str(i['unavailableReason'])}',
+                                  Text(str(i['unavailableReason']).isEmpty ? 'Unavailable: server configuration required.' : str(i['unavailableReason']),
                                       style: t.bodySmall?.copyWith(color: AutometaColors.warning), maxLines: 3, overflow: TextOverflow.ellipsis),
                               ]),
                             ),

@@ -95,6 +95,11 @@ test('Gmail without Google credentials: listed as unavailable, cannot start OAut
     const h = await s.t('GET', '/health');
     assert.equal(h.cloud.gmail, false);
     assert.equal(h.cloud.push, false);
+    assert.equal(h.cloud.scheduler, 'not_started', 'no fake "scheduler: true" before the loop runs');
+    await s.app.cloud.engine.tick();
+    assert.equal((await s.t('GET', '/health')).cloud.scheduler, 'running');
+    s.clock.t += 120_000;
+    assert.equal((await s.t('GET', '/health')).cloud.scheduler, 'stale');
     assert.ok(!JSON.stringify(await s.t('GET', '/v1/integrations')).match(/calendar/i), 'Calendar deferred: not listed');
   } finally { s.close(); }
 });
@@ -293,5 +298,17 @@ test('canonical {{weekday}} (with {{day}} compatibility alias): validator → en
     assert.equal((await s.t('POST', `/v1/automations/${a.id}/test`, {}, s.tok)).status, 'skipped');
     const bad = await s.t('PUT', `/v1/automations/${a.id}`, mk('day.name', 'x', 'x'), s.tok);
     assert.notEqual(bad.status, 'ready', 'only the bare alias is mapped');
+  } finally { s.close(); }
+});
+
+test('/health exposes no secret values even when every secret is configured', async () => {
+  const sa = JSON.stringify({ client_email: 'push@p.iam.gserviceaccount.com', private_key: 'PRIVATE-KEY-MATERIAL', project_id: 'p' });
+  const secrets = { ...GOOGLE, FCM_SERVICE_ACCOUNT_JSON: sa, META_APP_SECRET: 'meta-app-secret-value', OPENAI_API_KEY: 'sk-test-secret', RESEND_API_KEY: 're_secret', WEBHOOK_VERIFY_TOKEN: 'verify-secret' };
+  const s = await setup(secrets);
+  try {
+    const body = JSON.stringify(await s.t('GET', '/health'));
+    for (const v of [BASE_ENV.SECRET_KEY, BASE_ENV.ADMIN_KEY, ...Object.values(secrets), 'PRIVATE-KEY-MATERIAL', 'push@p.iam']) {
+      assert.ok(!body.includes(v), `health leaks ${v.slice(0, 12)}`);
+    }
   } finally { s.close(); }
 });

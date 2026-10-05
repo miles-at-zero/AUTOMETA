@@ -316,6 +316,7 @@ export class CloudEngine {
   /** One scheduler/worker pass. Safe to call concurrently from one process. */
   async tick() {
     const now = this.clock();
+    this.lastTickAt = now;
     const due = this.db.prepare(`SELECT * FROM automations WHERE status = 'active' AND next_run_at IS NOT NULL AND next_run_at <= ?`).all(now);
     for (const row of due) {
       const a = this.automation(row.id);

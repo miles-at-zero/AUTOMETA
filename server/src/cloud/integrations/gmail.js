@@ -113,7 +113,7 @@ export const gmailIntegration = {
   docs: 'docs/GMAIL.md',
   auth: { type: 'oauth', provider: 'google', scopes: GMAIL_SCOPES },
   available: (env) => googleConfigured(env),
-  unavailableReason: 'Gmail needs Google OAuth to be configured on this server (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, PUBLIC_URL).',
+  unavailableReason: 'Unavailable: server configuration required. The server operator must set up Google OAuth (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, PUBLIC_URL).',
   async test(conn, ctx) {
     const p = await gmail(ctx, conn, '/profile');
     return { identity: p.emailAddress };

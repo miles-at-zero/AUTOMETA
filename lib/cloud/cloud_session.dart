@@ -102,6 +102,25 @@ class CloudSession extends ChangeNotifier {
     return u;
   }
 
+  /// Why a server address can't be used, or null. There is no built-in
+  /// fallback server (never localhost): the address comes from the user or from
+  /// `--dart-define=AUTOMETA_CLOUD_URL`. Release builds require HTTPS because
+  /// passwords and session tokens travel over this connection.
+  static String? serverUrlProblem(String cleaned, {bool release = kReleaseMode}) {
+    final Uri? u = Uri.tryParse(cleaned);
+    if (cleaned.isEmpty || u == null || u.host.isEmpty) return 'Enter your Autometa Cloud server address.';
+    if (u.scheme != 'https' && u.scheme != 'http') return 'The server address must start with https://';
+    if (release && u.scheme != 'https') return 'Use an https:// server address. Plain http is only allowed in debug builds.';
+    return null;
+  }
+
+  static String _checkedUrl(String url) {
+    final String u = cleanUrl(url);
+    final String? problem = serverUrlProblem(u);
+    if (problem != null) throw CloudException(problem);
+    return u;
+  }
+
   Future<void> _start(String url, Json res) async {
     await _services.secrets.write(_tokenKey, str(res['token']));
     await _services.settings.repository.set(_urlKey, url);
@@ -111,19 +130,19 @@ class CloudSession extends ChangeNotifier {
   }
 
   Future<void> signUp(String url, String email, String password, String name) async {
-    final String u = cleanUrl(url);
+    final String u = _checkedUrl(url);
     await _start(u, await BusinessApi(baseUrl: u).post('/v1/auth/signup', <String, dynamic>{
       'email': email.trim(), 'password': password, 'name': name.trim(), 'timezone': _services.settings.timeZone ?? 'UTC',
     }));
   }
 
   Future<void> signIn(String url, String email, String password) async {
-    final String u = cleanUrl(url);
+    final String u = _checkedUrl(url);
     await _start(u, await BusinessApi(baseUrl: u).post('/v1/auth/login', <String, dynamic>{'email': email.trim(), 'password': password}));
   }
 
   Future<String> forgotPassword(String url, String email) async {
-    final Json r = await BusinessApi(baseUrl: cleanUrl(url)).post('/v1/auth/forgot', <String, dynamic>{'email': email.trim()});
+    final Json r = await BusinessApi(baseUrl: _checkedUrl(url)).post('/v1/auth/forgot', <String, dynamic>{'email': email.trim()});
     return str(r['message']);
   }
 

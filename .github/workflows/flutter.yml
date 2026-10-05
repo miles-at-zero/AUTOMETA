@@ -4,6 +4,11 @@ on:
   pull_request:
 permissions:
   contents: write
+# One run per branch at a time: newer pushes cancel older ones, so concurrent
+# runs can't race on the shared latest-build release.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   server-tests:
     runs-on: ubuntu-latest

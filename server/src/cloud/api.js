@@ -794,6 +794,12 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
     return true;
   }
 
-  const health = () => ({ scheduler: true, gmail: googleConfigured(env), push: engine.push.configured, publicUrl: !!env.PUBLIC_URL });
+  // Booleans/status words only: never secret values. "scheduler" reflects the
+  // real tick loop: not_started (no tick yet) / running / stale (> 60 s).
+  const health = () => {
+    const last = engine.lastTickAt;
+    const scheduler = last == null ? 'not_started' : clock() - last > 60_000 ? 'stale' : 'running';
+    return { scheduler, gmail: googleConfigured(env), push: engine.push.configured, publicUrl: !!env.PUBLIC_URL };
+  };
   return { engine, handle, health };
 }
