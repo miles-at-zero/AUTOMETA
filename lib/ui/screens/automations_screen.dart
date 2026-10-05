@@ -58,7 +58,7 @@ class WorkflowCard extends StatelessWidget {
 
   String _summary() {
     for (final WorkflowStep s in workflow.steps) {
-      if (s is WhatsAppStep) return 'WhatsApp · ${s.message.isEmpty ? s.mode.label : s.message}';
+      if (s is WhatsAppStep) return '${s.mode == WhatsAppMode.send ? 'WhatsApp Business' : 'Personal WhatsApp'} · ${s.message.isEmpty ? s.mode.label : s.message}';
       if (s is NotificationStep) return 'Notification · ${s.body}';
       if (s is AiStep) return 'AI · ${s.task.label}';
     }

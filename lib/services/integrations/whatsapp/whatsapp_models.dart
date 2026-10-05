@@ -47,7 +47,6 @@ enum WhatsAppDeliveryState {
 
   /// Legacy: records written by the removed consumer auto-send feature.
   /// Kept only so old history still reads; nothing produces it any more.
-  sentFromPhone('sent_from_phone', 'Sent from your phone'),
 
   /// Nothing was delivered.
   failed('failed', 'Failed'),
@@ -90,8 +89,7 @@ class WhatsAppSendOutcome {
 
   bool get succeeded =>
       state == WhatsAppDeliveryState.delivered ||
-      state == WhatsAppDeliveryState.held ||
-      state == WhatsAppDeliveryState.sentFromPhone;
+      state == WhatsAppDeliveryState.held;
 }
 
 /// Non-secret Business API configuration. The access token is *not* here;

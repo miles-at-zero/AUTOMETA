@@ -2,9 +2,11 @@ import { J, tx } from '../db.js';
 import { encrypt, newId, newToken, sha256 } from '../crypto.js';
 import { GooglePlayVerifier, mapPlayState } from '../billing.js';
 import { pricing } from '../pricing.js';
-import { CLOUD_SCHEMA } from './schema.js';
+import { CLOUD_SCHEMA, CLOUD_MIGRATIONS } from './schema.js';
 import { CloudEngine } from './engine.js';
 import { catalog, INTEGRATIONS } from './integrations/index.js';
+import { googleAuthUrl, googleConfigured, googleExchange } from './integrations/gmail.js';
+import { createHash, randomBytes } from 'node:crypto';
 import { ActionError } from './integrations/base.js';
 import { CLOUD_PLANS, cloudPlan, effectiveCloudPlan, LimitError, upgradeFor } from './plans.js';
 import { describeSchedule, nextRun, validTimezone } from './schedule.js';
@@ -20,6 +22,7 @@ const MAX_HOOK_BYTES = 256 * 1024;
 
 export function createCloud({ db, env = process.env, secret, clock = () => Date.now(), fetchImpl = globalThis.fetch }) {
   db.exec(CLOUD_SCHEMA);
+  for (const m of CLOUD_MIGRATIONS) { try { db.exec(m); } catch { /* column already exists */ } }
   const engine = new CloudEngine({ db, env, secret, clock, fetchImpl });
   const limiter = new RateLimiter(clock);
   const play = new GooglePlayVerifier({ env, fetchImpl });
@@ -49,14 +52,14 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
   const connOut = (c) => ({
     id: c.id, integration: c.integration, name: INTEGRATIONS[c.integration]?.name || c.integration, label: c.label, identity: c.identity, status: c.status,
     scopes: J.parse(c.scopes, []), lastOkAt: c.last_ok_at, lastError: c.last_error, createdAt: c.created_at,
-    usedBy: db.prepare(`SELECT id, name, status FROM automations WHERE workspace_id = ? AND steps LIKE ? AND status != 'archived'`).all(c.workspace_id, `%${c.id}%`),
+    usedBy: db.prepare(`SELECT id, name, status FROM automations WHERE workspace_id = ? AND (steps LIKE ? OR trigger LIKE ?) AND status != 'archived'`).all(c.workspace_id, `%${c.id}%`, `%${c.id}%`),
   });
   const webhookOut = (w, publicBase) => ({
     id: w.id, name: w.name, enabled: !!w.enabled, automationId: w.automation_id, requiresSecret: !!w.secret_hash,
     url: `${publicBase}/hooks/${w.public_id}`, requestCount: w.request_count, lastReceivedAt: w.last_received_at, createdAt: w.created_at,
   });
   const autoRow = (a) => ({ ...a, trigger: J.parse(a.trigger, {}), steps: J.parse(a.steps, []), retry: J.parse(a.retry, { policy: 'none' }) });
-  const validationFor = (ws, a) => validateAutomation(a, {
+  const validationFor = (ws, a) => validateAutomation(a, { env,
     connections: db.prepare('SELECT id, integration, status, identity FROM connections WHERE workspace_id = ?').all(ws.id),
     webhooks: db.prepare('SELECT id, name, enabled FROM webhooks WHERE workspace_id = ?').all(ws.id),
     planId: planOf(ws).id,
@@ -100,7 +103,7 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
         .map((s) => ({ ...s, output: J.parse(s.output, null), durationMs: s.endedAt ? s.endedAt - s.startedAt : null }));
       out.notice = e.is_test ? (e.live ? 'Test run with live actions (you confirmed). Waits were skipped.' : 'This was a test. No live action was performed.') : null;
       const failed = out.steps.find((s) => s.status === 'failed');
-      const conn = failed && db.prepare(`SELECT c.id, c.integration FROM connections c WHERE c.workspace_id = ? AND c.status = 'needs_reauth' AND ? LIKE '%' || c.id || '%'`).get(e.workspace_id, db.prepare('SELECT steps FROM automations WHERE id = ?').get(e.automation_id)?.steps || '');
+      const conn = failed && db.prepare(`SELECT c.id, c.integration FROM connections c WHERE c.workspace_id = ? AND c.status = 'needs_reauth' AND ? LIKE '%' || c.id || '%'`).get(e.workspace_id, (() => { const r = db.prepare('SELECT steps, trigger FROM automations WHERE id = ?').get(e.automation_id); return r ? r.steps + r.trigger : ''; })());
       out.actions = { canRetry: ['failed', 'partial'].includes(e.status) && !e.is_test, reconnect: conn ? { connectionId: conn.id, integration: conn.integration } : null };
     }
     return out;
@@ -117,7 +120,7 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
   const cleanSteps = (steps) => (Array.isArray(steps) ? steps : []).slice(0, 60).map((s) => ({
     id: String(s.id || newId('s')).slice(0, 40), type: s.type, enabled: s.enabled !== false, label: s.label ? String(s.label).slice(0, 80) : undefined,
     ...(s.type === 'action' ? { integration: s.integration, action: s.action, connectionId: s.connectionId || null, config: s.config && typeof s.config === 'object' ? s.config : {} } : {}),
-    ...(s.type === 'condition' ? { mode: s.mode === 'any' ? 'any' : 'all', rules: (s.rules || []).slice(0, 10).map((r) => ({ field: String(r.field || ''), op: r.op || 'eq', value: r.value ?? '' })) } : {}),
+    ...(s.type === 'condition' ? { mode: s.mode == null ? 'all' : String(s.mode).slice(0, 20), rules: (s.rules || []).slice(0, 10).map((r) => ({ field: String(r.field || ''), op: r.op || 'eq', value: r.value ?? '' })) } : {}),
     ...(s.type === 'delay' ? { minutes: Number(s.minutes) || 0 } : {}),
   }));
 
@@ -255,7 +258,7 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
   });
 
   // ------------------------------------------------------------ integrations & connections
-  route('GET', '/v1/integrations', () => catalog(), { public: true });
+  route('GET', '/v1/integrations', () => catalog(env), { public: true });
   route('GET', '/v1/connections', ({ ctx }) => db.prepare('SELECT * FROM connections WHERE workspace_id = ? ORDER BY created_at').all(ctx.ws.id).map(connOut));
   const providerCtx = () => ({ fetch: fetchImpl, env });
   async function verifyConnect(integ, fields) {
@@ -290,20 +293,80 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
       return { ok: false, message: e.message, fix: e.fix || null, connection: connOut(own('connections', c.id, ctx.ws)) };
     }
   });
+  // ---- Google OAuth (Gmail). Authorization-code flow with PKCE + one-time state.
+  route('POST', '/v1/oauth/:integration/start', ({ ctx, p, body }) => {
+    const integ = INTEGRATIONS[p.integration];
+    if (!integ || integ.auth.type !== 'oauth') throw new HttpError(404, 'Unknown app');
+    if (!googleConfigured(env)) throw new HttpError(503, integ.unavailableReason || 'Not configured on this server.', { fix: 'The server operator must configure Google OAuth (see DEPLOY.md).' });
+    let reconnectId = null;
+    if (body.connectionId) reconnectId = own('connections', body.connectionId, ctx.ws).id;
+    else limitCheck(ctx.ws, 'connections', count('SELECT COUNT(*) n FROM connections WHERE workspace_id = ?', ctx.ws.id), 'connections');
+    const state = randomBytes(24).toString('base64url');
+    const verifier = randomBytes(48).toString('base64url');
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    db.prepare('DELETE FROM oauth_states WHERE expires_at < ?').run(clock());
+    db.prepare('INSERT INTO oauth_states (state, workspace_id, user_id, integration, verifier, redirect, expires_at) VALUES (?,?,?,?,?,?,?)')
+      .run(state, ctx.ws.id, ctx.user.id, integ.id, verifier, reconnectId, clock() + 10 * 60e3);
+    audit(ctx, 'oauth.start', integ.id);
+    return { url: googleAuthUrl(env, { state, challenge }), expiresInSeconds: 600 };
+  });
+  const page = (title, msg, ok) => ({ __html: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font-family:system-ui;background:#0f1220;color:#e8eaf6;display:grid;place-items:center;min-height:90vh;text-align:center;padding:24px"><div><div style="font-size:48px">${ok ? '✅' : '⚠️'}</div><h2>${title}</h2><p>${msg}</p><p style="opacity:.7">You can close this page and return to Autometa.</p></div>` });
+  const esc = (v) => String(v).replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+  route('GET', '/oauth/google/callback', async ({ query }) => {
+    const st = db.prepare('SELECT * FROM oauth_states WHERE state = ?').get(String(query.get('state') || ''));
+    if (st) db.prepare('DELETE FROM oauth_states WHERE state = ?').run(st.state);
+    if (!st || st.expires_at < clock()) return page('Link expired', 'This sign-in link is invalid or expired. Start again from the app.', false);
+    if (query.get('error')) return page('Not connected', `Google said: ${esc(query.get('error'))}. Nothing was saved.`, false);
+    const integ = INTEGRATIONS[st.integration];
+    let r;
+    try { r = await googleExchange(fetchImpl, env, { code: String(query.get('code') || ''), verifier: st.verifier, now: clock() }); } catch (e) {
+      return page('Not connected', esc(e.message) + (e.fix ? ` ${esc(e.fix)}` : ''), false);
+    }
+    const ctx = { ws: { id: st.workspace_id }, user: { id: st.user_id } };
+    let id = st.redirect;
+    if (id && db.prepare('SELECT 1 FROM connections WHERE id = ? AND workspace_id = ?').get(id, st.workspace_id)) {
+      db.prepare(`UPDATE connections SET status = 'connected', identity = ?, secret_enc = ?, scopes = ?, last_ok_at = ?, last_error = NULL WHERE id = ?`)
+        .run(r.identity, encrypt(r.secret, secret), J.str(r.scopes), clock(), id);
+      audit(ctx, 'connection.reconnect', id);
+    } else {
+      id = newId('c_');
+      db.prepare('INSERT INTO connections (id, workspace_id, integration, label, identity, status, scopes, secret_enc, meta, last_ok_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, st.workspace_id, integ.id, integ.name, r.identity, 'connected', J.str(r.scopes), encrypt(r.secret, secret), '{}', clock(), clock());
+      audit(ctx, 'connection.create', id, { integration: integ.id });
+    }
+    return page(`${integ.name} connected`, `Connected as ${esc(r.identity)}.`, true);
+  }, { public: true });
+
+  // ---- Device push tokens
+  route('POST', '/v1/devices', ({ ctx, body }) => {
+    const token = String(body.token || '').trim();
+    if (token.length < 20 || token.length > 4096) throw new HttpError(422, 'Invalid device token');
+    const prefs = J.str({ failures: body.prefs?.failures !== false, account: body.prefs?.account !== false, messages: body.prefs?.messages !== false });
+    const ex = db.prepare('SELECT id FROM devices WHERE token = ?').get(token);
+    if (ex) db.prepare('UPDATE devices SET user_id = ?, workspace_id = ?, prefs = ?, last_seen_at = ? WHERE id = ?').run(ctx.user.id, ctx.ws.id, prefs, clock(), ex.id);
+    else db.prepare('INSERT INTO devices (id, user_id, workspace_id, platform, token, prefs, created_at, last_seen_at) VALUES (?,?,?,?,?,?,?,?)').run(newId('d_'), ctx.user.id, ctx.ws.id, body.platform === 'ios' ? 'ios' : 'android', token, prefs, clock(), clock());
+    return { ok: true, pushConfigured: engine.push.configured };
+  });
+  route('DELETE', '/v1/devices', ({ ctx, body }) => {
+    const n = db.prepare('DELETE FROM devices WHERE token = ? AND user_id = ?').run(String(body.token || ''), ctx.user.id).changes;
+    return { ok: true, removed: n };
+  });
+
   route('POST', '/v1/connections/:id/reconnect', async ({ ctx, p, body }) => {
     const c = own('connections', p.id, ctx.ws);
+    if (INTEGRATIONS[c.integration]?.auth.type === 'oauth') throw new HttpError(422, 'Reconnect through the sign-in page.', { fix: 'Use POST /v1/oauth/:integration/start with connectionId.' });
     const r = await verifyConnect(INTEGRATIONS[c.integration], body.fields);
     db.prepare(`UPDATE connections SET status = 'connected', identity = ?, secret_enc = ?, meta = ?, scopes = ?, last_ok_at = ?, last_error = NULL WHERE id = ?`)
       .run(r.identity || '', r.secret ? encrypt(r.secret, secret) : null, J.str(r.meta || {}), J.str(r.scopes || []), clock(), c.id);
     // Automations paused only because of this connection can be resumed by the user.
-    const affected = db.prepare(`SELECT id, name FROM automations WHERE workspace_id = ? AND status = 'error' AND steps LIKE ?`).all(ctx.ws.id, `%${c.id}%`);
+    const affected = db.prepare(`SELECT id, name FROM automations WHERE workspace_id = ? AND status = 'error' AND (steps LIKE ? OR trigger LIKE ?)`).all(ctx.ws.id, `%${c.id}%`, `%${c.id}%`);
     audit(ctx, 'connection.reconnect', c.id);
     return { connection: connOut(own('connections', c.id, ctx.ws)), pausedAutomations: affected, message: affected.length ? `Reconnected. ${affected.length} paused automation(s) can be turned back on.` : 'Reconnected.' };
   });
   route('DELETE', '/v1/connections/:id', ({ ctx, p }) => {
     const c = own('connections', p.id, ctx.ws);
     db.prepare('DELETE FROM connections WHERE id = ?').run(c.id);
-    const affected = db.prepare(`SELECT id FROM automations WHERE workspace_id = ? AND steps LIKE ? AND status = 'active'`).all(ctx.ws.id, `%${c.id}%`);
+    const affected = db.prepare(`SELECT id FROM automations WHERE workspace_id = ? AND (steps LIKE ? OR trigger LIKE ?) AND status = 'active'`).all(ctx.ws.id, `%${c.id}%`, `%${c.id}%`);
     for (const a of affected) db.prepare(`UPDATE automations SET status = 'paused', status_reason = ?, next_run_at = NULL WHERE id = ?`).run(`Paused: ${INTEGRATIONS[c.integration]?.name} was disconnected.`, a.id);
     audit(ctx, 'connection.delete', c.id);
     return { ok: true, pausedAutomations: affected.length };
@@ -349,7 +412,7 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
     const a = autoRow(own('automations', p.id, ctx.ws));
     const v = validationFor(ctx.ws, a);
     if (!v.ok) throw new HttpError(422, 'Fix the items below before activating.', { validation: v });
-    db.prepare(`UPDATE automations SET status = 'active', status_reason = NULL, consecutive_failures = 0, next_run_at = ?, updated_at = ? WHERE id = ?`).run(engine.schedule(a), clock(), a.id);
+    db.prepare(`UPDATE automations SET status = 'active', status_reason = NULL, consecutive_failures = 0, next_run_at = ?, updated_at = ?, trigger_state = ?, next_poll_at = NULL WHERE id = ?`).run(engine.schedule(a), clock(), J.str({ cursor: clock() }), a.id);
     audit(ctx, 'automation.activate', a.id);
     return autoOut(ctx.ws, own('automations', a.id, ctx.ws), { detail: true });
   });
@@ -395,7 +458,7 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
     if (!limiter.hit(`test:${a.id}`, 20, 60e3)) throw new HttpError(429, 'Slow down: at most 20 tests a minute.');
     if (live) { const v = validationFor(ctx.ws, a); if (!v.ok) throw new HttpError(422, 'Fix the items below before a live test.', { validation: v }); }
     const sample = body.payload ?? sampleFor(a);
-    const ex = engine.start(a, { triggerType: 'test', data: { payload: sample }, isTest: true, live });
+    const ex = engine.start(a, { triggerType: 'test', data: { payload: sample, ...(sample?.email ? { email: sample.email } : {}) }, isTest: true, live });
     await engine.drain(5);
     return execOut(db.prepare('SELECT * FROM executions WHERE id = ?').get(ex.id), true);
   });
@@ -418,6 +481,9 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
     if (a.trigger?.integration === 'webhook') {
       const last = db.prepare('SELECT r.payload FROM webhook_requests r JOIN webhooks w ON w.id = r.webhook_id WHERE w.id = ? ORDER BY r.id DESC LIMIT 1').get(a.trigger.config?.webhookId || '');
       return last ? J.parse(last.payload, {}) : { event: 'test', name: 'Jane', priority: 'high' };
+    }
+    if (a.trigger?.integration === 'gmail') {
+      return { email: { id: 'sample', from: 'Billing <billing@example.com>', fromEmail: 'billing@example.com', to: 'you@example.com', subject: 'Your invoice is ready', snippet: 'Sample email used for testing', date: new Date(clock()).toUTCString() } };
     }
     return {};
   }
@@ -696,7 +762,7 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
   // ------------------------------------------------------------ dispatcher
   /** Returns true when the request was a cloud route. */
   async function handle(req, res, url) {
-    if (!url.pathname.startsWith('/v1/') && !url.pathname.startsWith('/hooks/')) return false;
+    if (!url.pathname.startsWith('/v1/') && !url.pathname.startsWith('/hooks/') && !url.pathname.startsWith('/oauth/')) return false;
     const r = routes.find((x) => x.method === req.method && x.re.test(url.pathname));
     const send = (status, body) => {
       res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': env.CORS_ORIGIN || '*', 'access-control-allow-headers': 'authorization, content-type, x-admin-key, x-autometa-secret', 'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS', 'cache-control': 'no-store' });
@@ -716,6 +782,8 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
       const p = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
       const ctx = r.public ? null : { ...authCtx(req), ip };
       const out = await r.handler({ req, body, raw, p, query: url.searchParams, ctx, ip });
+      await engine.flushPush();
+      if (out?.__html) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'", 'referrer-policy': 'no-referrer' }); res.end(out.__html); return true; }
       send(r.status || 200, out ?? { ok: true });
     } catch (e) {
       if (e instanceof LimitError) return send(402, { error: e.message, limit: e.limit, requiredPlan: e.requiredPlan }), true;
@@ -726,5 +794,6 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
     return true;
   }
 
-  return { engine, handle };
+  const health = () => ({ scheduler: true, gmail: googleConfigured(env), push: engine.push.configured, publicUrl: !!env.PUBLIC_URL });
+  return { engine, handle, health };
 }

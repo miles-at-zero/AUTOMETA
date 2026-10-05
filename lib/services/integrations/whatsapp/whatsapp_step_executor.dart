@@ -106,7 +106,7 @@ class WhatsAppStepExecutor extends StepExecutor {
           workflowId: context.workflow.id,
           workflowName: context.workflow.name,
           stepId: step.id,
-          title: 'Send WhatsApp to ${recipient.displayName}',
+          title: 'Personal WhatsApp: message for ${recipient.displayName} (you tap Send)',
           integrationId: IntegrationIds.whatsapp,
           action: mode == WhatsAppMode.open ? 'open_conversation' : 'prepare_message',
           body: message,
@@ -127,7 +127,7 @@ class WhatsAppStepExecutor extends StepExecutor {
 
     if (context.dryRun) {
       return StepResult.simulated(
-        detail: 'Would ${mode.label.toLowerCase()} to ${recipient.displayName} '
+        detail: 'Would run "${mode.label}" for ${recipient.displayName} '
             '(${recipient.maskedNumber}): "$message"',
       );
     }
@@ -149,13 +149,6 @@ class WhatsAppStepExecutor extends StepExecutor {
           outputVariables: <String, String>{
             if (outcome.messageId != null) 'whatsapp_message_id': outcome.messageId!,
           },
-        );
-      case WhatsAppDeliveryState.sentFromPhone:
-        return StepResult(
-          outcome: StepOutcome.success,
-          detail: outcome.reason ??
-              'Sent from your phone: AUTOMETA pressed Send in WhatsApp and WhatsApp accepted it.',
-          code: 'whatsapp.sent_from_phone',
         );
       case WhatsAppDeliveryState.handedToUser:
         // Honest state: the chat is open with the text prefilled. AUTOMETA did

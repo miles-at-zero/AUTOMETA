@@ -10,7 +10,8 @@ enum TriggerType {
   dateTime('date_time', 'Date & time'),
   manual('manual', 'Manual'),
   appEvent('app_event', 'App event'),
-  webhook('webhook', 'Webhook');
+  webhook('webhook', 'Webhook'),
+  gmailNewEmail('gmail_new_email', 'New email (Gmail)');
 
   const TriggerType(this.wire, this.label);
 
@@ -107,6 +108,7 @@ sealed class WorkflowTrigger {
       TriggerType.manual => ManualTrigger.fromJson(map),
       TriggerType.appEvent => AppEventTrigger.fromJson(map),
       TriggerType.webhook => WebhookTrigger.fromJson(map),
+      TriggerType.gmailNewEmail => GmailTrigger.fromJson(map),
     };
   }
 }
@@ -470,4 +472,30 @@ class WebhookTrigger extends WorkflowTrigger {
       method: asString(map['method'], fallback: 'POST'),
     );
   }
+}
+
+/// Fires when a new email matching [query] arrives in the user's Gmail.
+/// Cloud-only: Autometa Cloud polls Gmail (about every minute) with the
+/// account connected in Cloud connections. Mail that existed before the
+/// automation was turned on never triggers it.
+@immutable
+class GmailTrigger extends WorkflowTrigger {
+  const GmailTrigger({this.query = ''});
+
+  /// Gmail search syntax, e.g. `from:billing@example.com subject:invoice`.
+  final String query;
+
+  @override
+  TriggerType get type => TriggerType.gmailNewEmail;
+
+  @override
+  tz.TZDateTime? nextOccurrence(tz.TZDateTime after, tz.Location location) => null;
+
+  @override
+  String describe() => query.trim().isEmpty ? 'New Gmail email' : 'New Gmail email · ${query.trim()}';
+
+  @override
+  Map<String, dynamic> toJson() => <String, dynamic>{'type': type.wire, 'query': query};
+
+  factory GmailTrigger.fromJson(Object? json) => GmailTrigger(query: asString(asMap(json)['query']));
 }

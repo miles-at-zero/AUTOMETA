@@ -51,7 +51,7 @@ void main() {
     test('Prepare WhatsApp is On-device only and names the step', () {
       final List<CapabilityIssue> i = ExecutionCapabilities.check(wf(const ScheduleTrigger(), <WorkflowStep>[prepare]), ExecutionMode.cloud);
       expect(i.single.stepId, 'p');
-      expect(i.single.label, 'Prepare WhatsApp message');
+      expect(i.single.label, 'Personal WhatsApp: prepare message (you tap Send)');
     });
 
     test('silent send from personal WhatsApp is unsupported everywhere', () {
@@ -134,6 +134,72 @@ void main() {
       expect((steps[0] as Map<String, dynamic>)['type'], 'condition');
       expect(((steps[0] as Map<String, dynamic>)['rules'] as List<dynamic>).single, containsPair('op', 'exists'));
       expect((steps[1] as Map<String, dynamic>)['action'], 'notify');
+    });
+
+    test('AND/OR conditions map every rule with the match mode', () {
+      final Workflow w = wf(const WebhookTrigger(token: 't'), <WorkflowStep>[
+        const ConditionStep(
+          id: 'c',
+          condition: Condition(left: '{{payload.status}}', operator: ConditionOperator.equals, right: 'paid'),
+          more: <Condition>[Condition(left: '{{payload.note}}', operator: ConditionOperator.notContains, right: 'test')],
+          matchAny: true,
+          thenSteps: <WorkflowStep>[notify],
+        ),
+      ]);
+      final CloudMapping m = CloudMapper(phoneFor: (_) => null, webhookId: 'wh').map(w);
+      expect(m.ok, isTrue, reason: m.issues.map((CapabilityIssue i) => i.reason).join());
+      final Map<String, dynamic> c = (m.body['steps'] as List<dynamic>)[0] as Map<String, dynamic>;
+      expect(c['mode'], 'any');
+      expect((c['rules'] as List<dynamic>).length, 2);
+      expect((c['rules'] as List<dynamic>)[1], containsPair('op', 'not_contains'));
+    });
+
+    test('Gmail trigger + send map to the gmail integration and need a Cloud connection', () {
+      final Workflow w = wf(const GmailTrigger(query: 'subject:invoice'), <WorkflowStep>[
+        const GmailSendStep(id: 'g', to: 'dad@example.com', subject: 'Hi', body: 'From {{email.from}}'),
+      ]);
+      final CloudMapping missing = CloudMapper(phoneFor: (_) => null).map(w);
+      expect(missing.ok, isFalse);
+      expect(missing.issues.single.label, 'Gmail');
+      final CloudMapping m = CloudMapper(phoneFor: (_) => null, gmailConnectionId: 'c_g').map(w);
+      expect(m.ok, isTrue);
+      expect(m.body['trigger'], containsPair('connectionId', 'c_g'));
+      expect((m.body['trigger'] as Map<String, dynamic>)['key'], 'new_email');
+      expect((m.body['steps'] as List<dynamic>).single, containsPair('action', 'send_email'));
+    });
+  });
+
+  group('V1 conditions + Gmail (domain)', () {
+    test('multi-rule condition round-trips; legacy single rule still parses', () {
+      const ConditionStep c = ConditionStep(
+        id: 'c',
+        condition: Condition(left: '{{day}}', operator: ConditionOperator.equals, right: 'Sunday'),
+        more: <Condition>[Condition(left: '{{time}}', operator: ConditionOperator.contains, right: '18')],
+        thenSteps: <WorkflowStep>[notify],
+      );
+      final ConditionStep back = WorkflowStep.fromJson(c.toJson()) as ConditionStep;
+      expect(back.conditions.length, 2);
+      expect(back.matchAny, isFalse);
+      expect(back.describe(), contains(' AND '));
+      final ConditionStep legacy = WorkflowStep.fromJson(<String, dynamic>{
+        'id': 'l', 'type': 'condition', 'if': <String, dynamic>{'left': '{{day}}', 'operator': '==', 'right': 'Monday'}, 'then': <dynamic>[],
+      }) as ConditionStep;
+      expect(legacy.conditions.length, 1);
+    });
+
+    test('empty condition blocks activation', () {
+      final Workflow w = wf(const ManualTrigger(), <WorkflowStep>[
+        const ConditionStep(id: 'c', condition: Condition(left: '', operator: ConditionOperator.equals), thenSteps: <WorkflowStep>[notify]),
+      ], mode: ExecutionMode.onDevice);
+      expect(const WorkflowValidator().validate(w).issues.any((ValidationIssue i) => i.code == 'condition.incomplete'), isTrue);
+    });
+
+    test('Gmail is Cloud-only and never offered as an on-device block', () {
+      final Workflow w = wf(const GmailTrigger(), <WorkflowStep>[const GmailSendStep(id: 'g', to: 'a@b.co', subject: 's', body: 'b')]);
+      expect(ExecutionCapabilities.check(w, ExecutionMode.cloud), isEmpty);
+      expect(ExecutionCapabilities.check(w, ExecutionMode.onDevice).length, 2);
+      final GmailTrigger t = WorkflowTrigger.fromJson(const GmailTrigger(query: 'from:x').toJson()) as GmailTrigger;
+      expect(t.query, 'from:x');
     });
   });
 }

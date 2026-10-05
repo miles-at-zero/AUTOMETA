@@ -194,7 +194,7 @@ export function createApp({ db = openDb(':memory:'), env = process.env, sender, 
     routes.push({ method, re, keys, handler, ...opts });
   };
 
-  route('GET', '/health', () => ({ ok: true, time: clock(), whatsapp: !!env.META_APP_SECRET, ai: ai.configured, googlePlay: play.configured }), { public: true });
+  route('GET', '/health', () => ({ ok: true, time: clock(), whatsapp: !!env.META_APP_SECRET, ai: ai.configured, googlePlay: play.configured, cloud: cloud.health() }), { public: true });
   route('GET', '/plans', () => ({ plans: describePlans(), features: FEATURES, pricing: pricing(env) }), { public: true });
 
   // --- WhatsApp webhook (Meta) ---

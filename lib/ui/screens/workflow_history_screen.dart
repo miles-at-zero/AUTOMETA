@@ -16,6 +16,7 @@ import '../widgets/autometa_widgets.dart';
 import '../widgets/execution_widgets.dart';
 import 'builder_screen.dart';
 import 'cloud_account_screen.dart';
+import 'cloud_execution_screen.dart';
 import 'execution_detail_screen.dart';
 import 'home_screen.dart';
 
@@ -237,6 +238,8 @@ class _AutomationDetailScreenState extends State<AutomationDetailScreen> {
                               Formatters.stamp(DateTime.fromMillisecondsSinceEpoch(intOf(e['startedAt']))),
                               if (e['error'] != null) str(e['error']),
                             ].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CloudExecutionScreen(executionId: str(e['id'])))),
                           ),
                         const SizedBox(height: AutometaSpacing.lg),
                       ]);

@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_services.dart';
+import '../cloud/cloud_session.dart';
 import '../core/theme/autometa_theme.dart';
 import '../core/theme/design_tokens.dart';
 import '../services/settings/settings_service.dart';
 import '../state/app_state.dart';
 import 'screens/activity_screen.dart';
 import 'screens/automations_screen.dart';
+import 'screens/cloud_account_screen.dart';
+import 'screens/cloud_execution_screen.dart';
 import 'screens/create_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
@@ -93,6 +96,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    context.read<AppServices>().notifications.onTap = _openPayload;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<CloudSession>().checkAlerts();
+    });
+  }
+
+  /// Deep links from Cloud alerts: open the failed run or the reconnect screen.
+  void _openPayload(String? payload) {
+    if (!mounted || payload == null) return;
+    final NavigatorState nav = Navigator.of(context);
+    if (payload.startsWith('cloudexec:')) {
+      nav.push(MaterialPageRoute<void>(builder: (_) => CloudExecutionScreen(executionId: payload.substring(10))));
+    } else if (payload.startsWith('cloudreconnect:')) {
+      nav.push(MaterialPageRoute<void>(builder: (_) => const CloudAccountScreen()));
+    } else if (payload.startsWith('cloud:')) {
+      select(3);
+    }
   }
 
   @override
@@ -108,6 +128,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       context.read<AppState>().refresh();
       context.read<SettingsService>().refreshPlatformState();
+      context.read<CloudSession>().checkAlerts();
     }
   }
 

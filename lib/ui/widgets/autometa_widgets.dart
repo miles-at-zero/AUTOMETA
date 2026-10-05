@@ -183,6 +183,7 @@ IconData stepIcon(StepKind kind) => switch (kind) {
       StepKind.condition => Icons.call_split,
       StepKind.delay => Icons.hourglass_bottom_outlined,
       StepKind.setVariable => Icons.data_object,
+      StepKind.gmailSend => Icons.mail_outline,
     };
 
 /// Full-width primary action.

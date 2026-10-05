@@ -1,4 +1,5 @@
 import '../domain/capabilities/execution_capabilities.dart';
+import '../domain/models/condition.dart';
 import '../domain/models/execution_mode.dart';
 import '../domain/models/step.dart';
 import '../domain/models/trigger.dart';
@@ -22,7 +23,18 @@ class CloudMapper {
     required this.phoneFor,
     this.whatsappConnectionId,
     this.webhookId,
+    this.gmailConnectionId,
   });
+
+  /// Cloud Gmail connection used by the Gmail trigger and send blocks.
+  final String? gmailConnectionId;
+
+  void _needGmail(List<CapabilityIssue> issues, {String? stepId}) {
+    if (gmailConnectionId == null && !issues.any((CapabilityIssue i) => i.label == 'Gmail')) {
+      issues.add(CapabilityIssue(stepId: stepId, label: 'Gmail',
+          reason: 'Connect Gmail in Autometa Cloud first (Settings → Cloud account → Cloud connections).'));
+    }
+  }
 
   /// Contact alias → dialable digits (definitions store aliases, not numbers).
   final String? Function(String alias) phoneFor;
@@ -75,6 +87,14 @@ class CloudMapper {
           'key': 'received',
           'config': <String, dynamic>{'webhookId': webhookId ?? ''},
         };
+      case GmailTrigger(:final String query):
+        _needGmail(issues);
+        return <String, dynamic>{
+          'integration': 'gmail',
+          'key': 'new_email',
+          'connectionId': gmailConnectionId ?? '',
+          'config': <String, dynamic>{'query': query},
+        };
       default:
         return null; // Already reported by the capability check.
     }
@@ -106,10 +126,10 @@ class CloudMapper {
           if (mode != WhatsAppMode.send) break; // Reported by the capability check.
           final String? phone = phoneFor(recipient);
           if (phone == null || phone.isEmpty) {
-            issues.add(CapabilityIssue(stepId: s.id, label: 'WhatsApp message', reason: 'No phone number saved for "$recipient". Add it in Contacts.'));
+            issues.add(CapabilityIssue(stepId: s.id, label: 'WhatsApp Business message', reason: 'No phone number saved for "$recipient". Add it in Contacts.'));
           }
           if (whatsappConnectionId == null) {
-            issues.add(CapabilityIssue(stepId: s.id, label: 'WhatsApp message',
+            issues.add(CapabilityIssue(stepId: s.id, label: 'WhatsApp Business message',
                 reason: 'Connect WhatsApp Business to Autometa Cloud (Settings → Cloud account → Cloud connections).'));
           }
           out.add(<String, dynamic>{...base, 'type': 'action', 'integration': 'whatsapp',
@@ -117,13 +137,21 @@ class CloudMapper {
             'config': templateName == null
                 ? <String, dynamic>{'to': phone ?? '', 'text': _vars(w, message)}
                 : <String, dynamic>{'to': phone ?? '', 'template': templateName, 'language': 'en_US'}});
-        case ConditionStep(:final condition, :final List<WorkflowStep> thenSteps):
-          final String? op = ExecutionCapabilities.cloudOperators[condition.operator];
-          final String? field = ExecutionCapabilities.cloudField.firstMatch(condition.left)?.group(1);
-          out.add(<String, dynamic>{...base, 'type': 'condition', 'mode': 'all', 'rules': <Map<String, dynamic>>[
-            <String, dynamic>{'field': field ?? '', 'op': op ?? 'eq', 'value': _vars(w, condition.right)},
+        case ConditionStep(:final List<WorkflowStep> thenSteps):
+          out.add(<String, dynamic>{...base, 'type': 'condition', 'mode': s.matchAny ? 'any' : 'all', 'rules': <Map<String, dynamic>>[
+            for (final Condition c in s.conditions)
+              <String, dynamic>{
+                'field': ExecutionCapabilities.cloudField.firstMatch(c.left)?.group(1) ?? '',
+                'op': ExecutionCapabilities.cloudOperators[c.operator] ?? 'eq',
+                'value': _vars(w, c.right),
+              },
           ]});
           _steps(w, thenSteps, out, issues);
+        case GmailSendStep(:final String to, :final String subject, :final String body):
+          _needGmail(issues, stepId: s.id);
+          out.add(<String, dynamic>{...base, 'type': 'action', 'integration': 'gmail', 'action': 'send_email',
+            'connectionId': gmailConnectionId,
+            'config': <String, dynamic>{'to': _vars(w, to), 'subject': _vars(w, subject), 'body': _vars(w, body)}});
         default:
           break; // Device-only blocks: reported by the capability check.
       }

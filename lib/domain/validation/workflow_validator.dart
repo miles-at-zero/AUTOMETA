@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../capabilities/execution_capabilities.dart';
+import '../models/condition.dart';
 import '../models/step.dart';
 import '../models/trigger.dart';
 import '../models/workflow.dart';
@@ -184,6 +185,8 @@ class WorkflowValidator {
             code: 'trigger.webhook_token',
           ));
         }
+      case GmailTrigger():
+        break; // Connection and availability are checked by Autometa Cloud.
     }
   }
 
@@ -299,6 +302,17 @@ class WorkflowValidator {
           ));
         }
       case ConditionStep(:final List<WorkflowStep> thenSteps, :final List<WorkflowStep> elseSteps):
+        for (final Condition c in step.conditions) {
+          if (c.left.trim().isEmpty || (!c.operator.isUnary && c.right.trim().isEmpty && c.operator != ConditionOperator.equals && c.operator != ConditionOperator.notEquals)) {
+            issues.add(ValidationIssue(
+              severity: IssueSeverity.error,
+              message: 'Condition is incomplete: fill in what to check and the value to compare with',
+              stepId: step.id,
+              code: 'condition.incomplete',
+            ));
+            break;
+          }
+        }
         if (thenSteps.isEmpty && elseSteps.isEmpty) {
           issues.add(ValidationIssue(
             severity: IssueSeverity.error,
@@ -319,6 +333,15 @@ class WorkflowValidator {
         _validateSteps(elseSteps, issues, depth: depth + 1);
       case DelayStep():
         break;
+      case GmailSendStep(:final String to, :final String subject, :final String body):
+        if (to.trim().isEmpty || subject.trim().isEmpty || body.trim().isEmpty) {
+          issues.add(ValidationIssue(
+            severity: IssueSeverity.error,
+            message: 'Gmail block needs a recipient, subject and message',
+            stepId: step.id,
+            code: 'gmail.incomplete',
+          ));
+        }
       case SetVariableStep(:final String name):
         if (name.trim().isEmpty) {
           issues.add(ValidationIssue(

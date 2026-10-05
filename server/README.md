@@ -6,7 +6,7 @@ analytics, team, and billing screens. Zero dependencies; Node ≥ 22.5 (built-in
 
 ```bash
 cd server
-npm test                      # 14 tests: API end-to-end + engine units
+npm test                      # API end-to-end, Cloud engine, Gmail, push, conditions
 SECRET_KEY=$(openssl rand -hex 32) ADMIN_KEY=change-me node src/index.js
 # or: docker build -t autometa-server . && docker run -p 8080:8080 -v autometa:/data --env-file .env autometa-server
 ```

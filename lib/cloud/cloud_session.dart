@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../app_services.dart';
 import '../business/business_api.dart';
+import '../services/notifications/notification_service.dart';
 import '../domain/capabilities/execution_capabilities.dart';
 import '../domain/models/trigger.dart';
 import '../domain/models/workflow.dart';
@@ -31,6 +32,11 @@ class CloudSession extends ChangeNotifier {
   final AppServices _services;
   static const String _tokenKey = 'cloud.session_token';
   static const String _urlKey = 'cloud.server_url';
+
+  /// Build-time default server, e.g.
+  /// `flutter build apk --dart-define=AUTOMETA_CLOUD_URL=https://api.example.com`.
+  /// Empty in plain builds: the user types their server address.
+  static const String defaultServerUrl = String.fromEnvironment('AUTOMETA_CLOUD_URL');
 
   BusinessApi? api;
   Json? me;
@@ -135,6 +141,54 @@ class CloudSession extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------- alerts
+  static const String _alertsSeenKey = 'cloud.alerts_seen_at';
+
+  /// Server notification kinds worth interrupting the user for. Ordinary
+  /// successes are never surfaced as phone notifications.
+  static const Set<String> alertKinds = <String>{
+    'automation_failed', 'automation_paused', 'connection_reauth', 'usage_limit', 'usage_warning', 'automation_message',
+  };
+
+  /// In-app fallback for device push: on app start/resume, shows important
+  /// Cloud notifications that arrived since the last check as Android
+  /// notifications with a deep link (`cloudexec:<id>` / `cloudreconnect:<id>`).
+  /// Real device push (FCM) needs Firebase config in the app build: EXTERNAL
+  /// CONFIG REQUIRED (docs/NOTIFICATIONS.md).
+  Future<int> checkAlerts() async {
+    if (!signedIn) return 0;
+    try {
+      final List<Json> list = await _need().list('/v1/notifications');
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final int seen = int.tryParse(await _services.settings.repository.get(_alertsSeenKey) ?? '') ?? (now - const Duration(hours: 24).inMilliseconds);
+      int shown = 0;
+      int newest = seen;
+      for (final Json n in list.reversed) {
+        final int at = intOf(n['createdAt']);
+        if (at <= seen || n['read'] == true || !alertKinds.contains(str(n['kind']))) continue;
+        if (at > newest) newest = at;
+        final Json action = asMap(n['action']);
+        final String payload = switch (str(action['type'])) {
+          'execution' => 'cloudexec:${str(action['executionId'])}',
+          'reconnect' => 'cloudreconnect:${str(action['connectionId'])}',
+          _ => 'cloud:${str(n['id'])}',
+        };
+        await _services.notifications.show(
+          title: '☁️ ${str(n['title'])}',
+          body: str(n['body']),
+          channel: NotificationChannels.failed,
+          payload: payload,
+          id: str(n['id']).hashCode & 0x7fffffff,
+        );
+        shown++;
+      }
+      await _services.settings.repository.set(_alertsSeenKey, '${newest > seen ? newest : now}');
+      return shown;
+    } catch (_) {
+      return 0; // Offline or signed out: try again on the next resume.
+    }
+  }
+
   // ---------------------------------------------------------------- connections
   Future<List<Json>> integrations() => _wrap(() => _need().list('/v1/integrations'));
   Future<List<Json>> connections() => _wrap(() => _need().list('/v1/connections'));
@@ -142,6 +196,10 @@ class CloudSession extends ChangeNotifier {
       _wrap(() => _need().post('/v1/connections', <String, dynamic>{'integration': integration, 'fields': fields}));
   Future<Json> reconnect(String id, Map<String, String> fields) =>
       _wrap(() => _need().post('/v1/connections/$id/reconnect', <String, dynamic>{'fields': fields}));
+  /// Starts Google OAuth on the server and returns the consent URL to open.
+  Future<String> startOAuth(String integration, {String? connectionId}) => _wrap(() async =>
+      str((await _need().post('/v1/oauth/$integration/start', <String, dynamic>{if (connectionId != null) 'connectionId': connectionId}))['url']));
+  Future<List<Json>> notifications() => _wrap(() => _need().list('/v1/notifications'));
   Future<void> disconnect(String id) => _wrap(() => _need().delete('/v1/connections/$id'));
 
   // ---------------------------------------------------------------- automations
@@ -153,12 +211,15 @@ class CloudSession extends ChangeNotifier {
     for (final r in await _services.contacts.all()) {
       phones[r.alias.toLowerCase()] = r.dialableNumber;
     }
+    final Json? gmail = conns.cast<Json?>().firstWhere(
+        (Json? c) => c?['integration'] == 'gmail' && c?['status'] == 'connected', orElse: () => null);
     String? hook;
     if (w.trigger is WebhookTrigger) hook = await _webhookFor(w);
     return CloudMapper(
       phoneFor: (String alias) => phones[alias.toLowerCase()],
       whatsappConnectionId: wa == null ? null : str(wa['id']),
       webhookId: hook,
+      gmailConnectionId: gmail == null ? null : str(gmail['id']),
     ).map(w);
   }
 

@@ -9,6 +9,7 @@ import '../../domain/models/execution.dart';
 import '../../domain/models/execution_status.dart';
 import '../../state/app_state.dart';
 import '../widgets/autometa_widgets.dart';
+import 'cloud_execution_screen.dart';
 import 'execution_detail_screen.dart';
 import 'home_screen.dart';
 
@@ -112,6 +113,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
       _ => AutometaColors.neutral,
     };
     return Panel(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CloudExecutionScreen(executionId: str(e['id'])))),
       child: Row(children: <Widget>[
         Icon(status == 'success' ? Icons.check_circle : (status == 'failed' || status == 'partial' ? Icons.warning_amber_rounded : Icons.cloud_outlined), color: color),
         const SizedBox(width: AutometaSpacing.md),

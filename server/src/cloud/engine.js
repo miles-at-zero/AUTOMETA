@@ -1,5 +1,7 @@
 import { J, tx } from '../db.js';
-import { decrypt, newId } from '../crypto.js';
+import { decrypt, encrypt, newId } from '../crypto.js';
+import { pollNewEmails } from './integrations/gmail.js';
+import { PushService } from './push.js';
 import { INTEGRATIONS } from './integrations/index.js';
 import { ActionError } from './integrations/base.js';
 import { cloudPlan, effectiveCloudPlan } from './plans.js';
@@ -10,6 +12,14 @@ const JOB_LOCK_MS = 5 * 60e3;
 const RETRY = { none: 0, once: 1, three: 3, exponential: 5 };
 
 export const month = (ms) => new Date(ms).toISOString().slice(0, 7);
+
+/** Resolves a condition field; `found` is false when the path doesn't exist. */
+export function resolveField(field, vars) {
+  const path = String(field).replace(/^\{\{\s*|\s*\}\}$/g, '');
+  let o = vars; let found = true;
+  for (const k of path.split('.')) { if (o == null || typeof o !== 'object' || !(k in o)) { found = false; o = undefined; break; } o = o[k]; }
+  return { found, value: o };
+}
 
 export function getPath(obj, path) {
   return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -50,6 +60,8 @@ export function describeRule(r) {
 export class CloudEngine {
   constructor({ db, env = process.env, secret, clock = () => Date.now(), fetchImpl = globalThis.fetch }) {
     Object.assign(this, { db, env, secret, clock, fetch: fetchImpl });
+    this.push = new PushService({ db, env, fetchImpl, clock });
+    this.pushQueue = [];
   }
 
   // ------------------------------------------------------------ helpers
@@ -74,8 +86,19 @@ export class CloudEngine {
       const recent = this.db.prepare('SELECT 1 FROM notifications WHERE workspace_id = ? AND kind = ? AND COALESCE(target, \'\') = ? AND created_at > ?').get(wsId, kind, target || '', this.clock() - dedupeMs);
       if (recent) return;
     }
+    const id = newId('n_');
     this.db.prepare('INSERT INTO notifications (id, workspace_id, kind, severity, title, body, action, target, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(newId('n_'), wsId, kind, severity, title, body, action ? J.str(action) : null, target, this.clock());
+      .run(id, wsId, kind, severity, title, body, action ? J.str(action) : null, target, this.clock());
+    // Push is sent outside the DB write path (flushPush), never blocking execution.
+    this.pushQueue.push({ wsId, n: { id, kind, severity, title, body, action, target } });
+  }
+  async flushPush() {
+    const q = this.pushQueue.splice(0);
+    for (const { wsId, n } of q) await this.push.dispatch(wsId, n);
+    return q.length;
+  }
+  saveSecret(connId, plain) {
+    this.db.prepare('UPDATE connections SET secret_enc = ? WHERE id = ?').run(encrypt(plain, this.secret), connId);
   }
   addJob(kind, executionId, dueAt) {
     this.db.prepare('INSERT INTO cloud_jobs (id, kind, execution_id, due_at, created_at) VALUES (?,?,?,?,?)').run(newId('j_'), kind, executionId, dueAt, this.clock());
@@ -104,6 +127,7 @@ export class CloudEngine {
     const d = new Date(now);
     const vars = {
       trigger: data, payload: data.payload ?? data, headers: data.headers ?? {}, steps: {},
+      ...(data.email ? { email: data.email } : {}),
       automation: a.name, date: d.toLocaleDateString('en-GB', { timeZone: a.timezone }), time: d.toLocaleTimeString('en-GB', { timeZone: a.timezone, hour: '2-digit', minute: '2-digit' }),
       weekday: d.toLocaleDateString('en-GB', { timeZone: a.timezone, weekday: 'long' }), execution: { id, number: seq, test: isTest },
     };
@@ -166,9 +190,13 @@ export class CloudEngine {
       }
       if (step.type === 'condition') {
         const r = this.stepRow(ex.id, step, i, 'condition', label);
-        const results = (step.rules || []).map((rule) => ({ rule, ok: evalRule(rule, vars) }));
+        const results = (step.rules || []).map((rule) => {
+          const f = resolveField(rule.field, vars);
+          const shown = f.value == null ? '' : typeof f.value === 'object' ? JSON.stringify(f.value) : String(f.value);
+          return { rule, ok: evalRule(rule, vars), note: f.found ? `(was "${shown.slice(0, 60)}")` : '(field not available in this run)' };
+        });
         const pass = step.mode === 'any' ? results.some((x) => x.ok) : results.every((x) => x.ok);
-        this.finishStep(r, pass ? 'success' : 'stopped', { detail: results.map((x) => `${x.ok ? '✓' : '✕'} ${describeRule(x.rule)}`).join(step.mode === 'any' ? ' OR ' : ' AND ') });
+        this.finishStep(r, pass ? 'success' : 'stopped', { detail: results.map((x) => `${x.ok ? '✓' : '✕'} ${describeRule(x.rule)} ${x.note}`).join(step.mode === 'any' ? ' OR ' : ' AND ') });
         if (!pass) {
           save({ status: actionsDone ? 'success' : 'skipped', ended_at: this.clock(), cursor: i + 1, vars: J.str(vars), error: actionsDone ? null : 'Conditions not met' });
           return this.afterFinish(a, ex.id);
@@ -210,7 +238,7 @@ export class CloudEngine {
         let out;
         if (receipt) out = J.parse(receipt.output, {});
         else {
-          out = await def.execute(cfg, conn, { fetch: this.fetch, env: this.env, automation: a, execution: ex, idempotencyKey: key, notify: (n) => this.notify(a.workspace_id, n) });
+          out = await def.execute(cfg, conn, { fetch: this.fetch, env: this.env, now: this.clock, automation: a, execution: ex, idempotencyKey: key, notify: (n) => this.notify(a.workspace_id, n), saveSecret: (p) => conn && this.saveSecret(conn.id, p) });
           this.db.prepare('INSERT OR IGNORE INTO step_receipts (key, output, created_at) VALUES (?,?,?)').run(key, J.str(out), this.clock());
           if (!isTest) this.bump(a.workspace_id, 'actions');
           if (conn) this.db.prepare('UPDATE connections SET last_ok_at = ?, last_error = NULL WHERE id = ?').run(this.clock(), conn.id);
@@ -304,6 +332,7 @@ export class CloudEngine {
       }
       this.start(a, { triggerType: 'schedule', data: { scheduledFor: new Date(slot).toISOString() }, scheduledFor: slot });
     }
+    await this.pollTriggers(now);
     const jobs = this.db.prepare('SELECT * FROM cloud_jobs WHERE done = 0 AND due_at <= ? AND (locked_until IS NULL OR locked_until < ?) ORDER BY due_at LIMIT 50').all(now, now);
     for (const j of jobs) {
       const claimed = this.db.prepare('UPDATE cloud_jobs SET locked_until = ?, attempts = attempts + 1 WHERE id = ? AND done = 0 AND (locked_until IS NULL OR locked_until < ?)').run(now + JOB_LOCK_MS, j.id, now).changes;
@@ -317,7 +346,34 @@ export class CloudEngine {
         if (give) this.db.prepare(`UPDATE executions SET status = 'failed', ended_at = ?, error = ? WHERE id = ? AND status = 'running'`).run(now, `Internal error: ${e.message}`, j.execution_id);
       }
     }
+    await this.flushPush();
     return { scheduled: due.length, jobs: jobs.length };
+  }
+
+  /** Polling triggers (Gmail new_email). Cursor starts at activation: old mail never fires. */
+  async pollTriggers(now = this.clock()) {
+    const rows = this.db.prepare(`SELECT id FROM automations WHERE status = 'active' AND trigger LIKE '%"integration":"gmail"%' AND (next_poll_at IS NULL OR next_poll_at <= ?)`).all(now);
+    for (const { id } of rows) {
+      const a = this.automation(id);
+      const t = a.trigger;
+      if (t.integration !== 'gmail' || t.key !== 'new_email') continue;
+      this.db.prepare('UPDATE automations SET next_poll_at = ? WHERE id = ?').run(now + 60e3, id);
+      const conn = t.connectionId ? this.connection(t.connectionId, a.workspace_id) : null;
+      if (!conn || conn.status !== 'connected') continue;
+      const state = J.parse(this.db.prepare('SELECT trigger_state FROM automations WHERE id = ?').get(id).trigger_state, {});
+      try {
+        const r = await pollNewEmails(conn, t.config?.query || '', state.cursor || null, { fetch: this.fetch, env: this.env, now: this.clock, saveSecret: (p) => this.saveSecret(conn.id, p) });
+        this.db.prepare('UPDATE automations SET trigger_state = ? WHERE id = ?').run(J.str({ cursor: r.cursor }), id);
+        this.db.prepare('UPDATE connections SET last_ok_at = ?, last_error = NULL WHERE id = ?').run(now, conn.id);
+        for (const email of r.emails) this.start(a, { triggerType: 'gmail', data: { email }, scheduledFor: email.receivedAt });
+      } catch (err) {
+        if (err instanceof ActionError && err.kind === 'auth') {
+          this.onFailure(a, { is_test: 0 }, { connectionId: conn.id }, INTEGRATIONS.gmail, err);
+        } else {
+          this.db.prepare('UPDATE connections SET last_error = ? WHERE id = ?').run(String(err.message), conn.id);
+        }
+      }
+    }
   }
 
   /** Runs everything due, including jobs created during this pass (tests, catch-up). */

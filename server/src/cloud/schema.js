@@ -98,4 +98,20 @@ CREATE TABLE IF NOT EXISTS oauth_states (
   state TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, user_id TEXT NOT NULL, integration TEXT NOT NULL,
   verifier TEXT, redirect TEXT, expires_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS devices (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL DEFAULT 'android', token TEXT NOT NULL UNIQUE,
+  prefs TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS push_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, notification_id TEXT, device_id TEXT,
+  status TEXT NOT NULL, detail TEXT, ts INTEGER NOT NULL
+);
 `;
+
+/** Additive column migrations for databases created by older versions. */
+export const CLOUD_MIGRATIONS = [
+  'ALTER TABLE automations ADD COLUMN trigger_state TEXT',
+  'ALTER TABLE automations ADD COLUMN next_poll_at INTEGER',
+];

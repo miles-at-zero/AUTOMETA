@@ -23,7 +23,7 @@ Future<void> main() async {
   // configure and monitor them. Offline start keeps the token and cached state.
   final CloudSession cloud = CloudSession(services);
   state.cloud = cloud;
-  unawaited(cloud.init());
+  unawaited(cloud.init().then((_) => cloud.checkAlerts()));
   await state.refresh();
 
   // Re-arm on every launch: covers app updates, force-stops and anything the

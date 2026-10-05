@@ -7,7 +7,7 @@ import 'condition.dart';
 
 /// Catalogue of every block the builder can insert (spec §9, §16).
 enum StepKind {
-  whatsapp('whatsapp', 'WhatsApp', 'Send, prepare or open a WhatsApp message'),
+  whatsapp('whatsapp', 'WhatsApp', 'Personal WhatsApp (prepare, you tap Send) or WhatsApp Business (official API)'),
   notification('notification', 'Notification', 'Show a local Android notification'),
   ai('ai', 'AI', 'Generate, rewrite, summarize, classify or extract'),
   http('http', 'HTTP request', 'Call any REST endpoint'),
@@ -16,7 +16,8 @@ enum StepKind {
   openUrl('open_url', 'Open URL', 'Open a website or app link'),
   condition('condition', 'Condition', 'Branch with IF / ELSE'),
   delay('delay', 'Wait', 'Pause the run before continuing'),
-  setVariable('set_variable', 'Set variable', 'Store a value for later blocks');
+  setVariable('set_variable', 'Set variable', 'Store a value for later blocks'),
+  gmailSend('gmail_send', 'Gmail: send email', 'Send an email from your connected Gmail (Cloud)');
 
   const StepKind(this.wire, this.label, this.blurb);
 
@@ -42,13 +43,13 @@ enum StepKind {
 /// How a WhatsApp step interacts with the platform.
 enum WhatsAppMode {
   /// Build the message and stop for approval / user tap-to-send.
-  prepare('prepare', 'Prepare message'),
+  prepare('prepare', 'Personal WhatsApp: prepare (you tap Send)'),
 
   /// Deliver through an integration that can actually send (Business API only).
-  send('send', 'Send automatically'),
+  send('send', 'WhatsApp Business: send automatically (official API)'),
 
   /// Open the conversation in WhatsApp with the text prefilled.
-  open('open', 'Open conversation');
+  open('open', 'Personal WhatsApp: open chat');
 
   const WhatsAppMode(this.wire, this.label);
 
@@ -136,6 +137,7 @@ sealed class WorkflowStep {
       StepKind.condition => ConditionStep.fromJson(map),
       StepKind.delay => DelayStep.fromJson(map),
       StepKind.setVariable => SetVariableStep.fromJson(map),
+      StepKind.gmailSend => GmailSendStep.fromJson(map),
     };
   }
 
@@ -650,6 +652,8 @@ class ConditionStep extends WorkflowStep {
   const ConditionStep({
     required super.id,
     required this.condition,
+    this.more = const <Condition>[],
+    this.matchAny = false,
     this.thenSteps = const <WorkflowStep>[],
     this.elseSteps = const <WorkflowStep>[],
     super.label,
@@ -657,14 +661,24 @@ class ConditionStep extends WorkflowStep {
   });
 
   final Condition condition;
+
+  /// Extra rules combined with [condition]: all must pass (AND), or any one
+  /// (OR) when [matchAny] is set. Empty for older single-rule blocks.
+  final List<Condition> more;
+  final bool matchAny;
   final List<WorkflowStep> thenSteps;
   final List<WorkflowStep> elseSteps;
+
+  /// Every rule in order, [condition] first.
+  List<Condition> get conditions => <Condition>[condition, ...more];
 
   @override
   StepKind get kind => StepKind.condition;
 
   ConditionStep copyWith({
     Condition? condition,
+    List<Condition>? more,
+    bool? matchAny,
     List<WorkflowStep>? thenSteps,
     List<WorkflowStep>? elseSteps,
     String? label,
@@ -673,6 +687,8 @@ class ConditionStep extends WorkflowStep {
       ConditionStep(
         id: id,
         condition: condition ?? this.condition,
+        more: more ?? this.more,
+        matchAny: matchAny ?? this.matchAny,
         thenSteps: thenSteps ?? this.thenSteps,
         elseSteps: elseSteps ?? this.elseSteps,
         label: label ?? this.label,
@@ -683,6 +699,8 @@ class ConditionStep extends WorkflowStep {
   WorkflowStep copyWithId(String newId) => ConditionStep(
         id: newId,
         condition: condition,
+        more: more,
+        matchAny: matchAny,
         thenSteps: thenSteps,
         elseSteps: elseSteps,
         label: label,
@@ -690,11 +708,13 @@ class ConditionStep extends WorkflowStep {
       );
 
   @override
-  String describe() => 'IF ${condition.describe()}';
+  String describe() => 'IF ${conditions.map((Condition c) => c.describe()).join(matchAny ? ' OR ' : ' AND ')}';
 
   @override
   Map<String, dynamic> configJson() => <String, dynamic>{
         'if': condition.toJson(),
+        if (more.isNotEmpty) 'more': more.map((Condition c) => c.toJson()).toList(),
+        if (more.isNotEmpty) 'match': matchAny ? 'any' : 'all',
         'then': thenSteps.map((WorkflowStep s) => s.toJson()).toList(),
         'else': elseSteps.map((WorkflowStep s) => s.toJson()).toList(),
       };
@@ -704,6 +724,8 @@ class ConditionStep extends WorkflowStep {
     return ConditionStep(
       id: asString(map['id']),
       condition: Condition.fromJson(map['if']),
+      more: asList(map['more']).map(Condition.fromJson).toList(growable: false),
+      matchAny: asString(map['match']) == 'any',
       thenSteps: WorkflowStep.listFromJson(map['then']),
       elseSteps: WorkflowStep.listFromJson(map['else']),
       label: asStringOrNull(map['label']),
@@ -802,6 +824,59 @@ class SetVariableStep extends WorkflowStep {
       id: asString(map['id']),
       name: asString(map['name'], fallback: 'value'),
       value: asString(map['value']),
+      label: asStringOrNull(map['label']),
+      continueOnError: asBool(map['continue_on_error']),
+    );
+  }
+}
+
+/// Sends an email through the user's Gmail account connected to Autometa
+/// Cloud (official Gmail API, OAuth). Cloud-only: the phone never holds
+/// Google tokens.
+@immutable
+class GmailSendStep extends WorkflowStep {
+  const GmailSendStep({
+    required super.id,
+    this.to = '',
+    this.subject = '',
+    this.body = '',
+    super.label,
+    super.continueOnError,
+  });
+
+  final String to;
+  final String subject;
+  final String body;
+
+  @override
+  StepKind get kind => StepKind.gmailSend;
+
+  GmailSendStep copyWith({String? to, String? subject, String? body}) => GmailSendStep(
+        id: id,
+        to: to ?? this.to,
+        subject: subject ?? this.subject,
+        body: body ?? this.body,
+        label: label,
+        continueOnError: continueOnError,
+      );
+
+  @override
+  WorkflowStep copyWithId(String newId) =>
+      GmailSendStep(id: newId, to: to, subject: subject, body: body, label: label, continueOnError: continueOnError);
+
+  @override
+  String describe() => 'Email ${to.isEmpty ? '…' : to}: ${Formatters.preview(subject, max: 32)}';
+
+  @override
+  Map<String, dynamic> configJson() => <String, dynamic>{'to': to, 'subject': subject, 'body': body};
+
+  factory GmailSendStep.fromJson(Object? json) {
+    final Map<String, dynamic> map = asMap(json);
+    return GmailSendStep(
+      id: asString(map['id']),
+      to: asString(map['to']),
+      subject: asString(map['subject']),
+      body: asString(map['body']),
       label: asStringOrNull(map['label']),
       continueOnError: asBool(map['continue_on_error']),
     );

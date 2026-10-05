@@ -51,6 +51,14 @@ The builder hides unavailable blocks and triggers and lists them separately, tog
 * On-device: runs follow Android's rules. A late or blocked run is recorded as skipped or failed, with remediation steps on the Background reliability screen. A run is never reported as successful when the OS prevented it.
 
 ## Current limits (honest)
-* Cloud needs the `server/` backend deployed (Docker, `SECRET_KEY`, `PUBLIC_URL`). The app asks for its address when you sign in.
-* Cloud "notification" steps appear in the Autometa Cloud inbox (`/v1/notifications`). Push notifications to the phone aren't implemented yet.
-* Gmail and Google Calendar aren't available yet (they need Google OAuth verification).
+* Cloud needs the `server/` backend deployed (see `server/DEPLOY.md`). The app asks for its address when you sign in, or a build can preset it with `--dart-define=AUTOMETA_CLOUD_URL=https://…`.
+* Cloud "notification" steps and failure alerts appear in the Autometa Cloud inbox (`/v1/notifications`). The app shows important ones (failures, paused, reconnect needed, usage limits) as phone notifications **when it is opened or resumed**. The server can push them with FCM HTTP v1, but the Android app has no FCM client yet because it needs a Firebase `google-services.json`. **EXTERNAL CONFIG REQUIRED.** See `docs/NOTIFICATIONS.md`.
+* Gmail (new-email trigger, send email) is implemented in Cloud with Google OAuth. It needs Google credentials on the server and, before a public launch, Google's restricted-scope verification. **EXTERNAL CONFIG REQUIRED.** See `docs/GMAIL.md`.
+* Google Calendar: **DEFERRED FROM V1.** It isn't listed anywhere in the app or the catalog.
+
+## On-device limits (honest)
+* Runs only while Android lets Autometa run. Battery saver, "restricted" battery mode and OEM task killers can delay or drop alarms.
+* Exact times need the "Alarms & reminders" permission (Android 12+). Without it, Android may shift runs by minutes.
+* After a reboot, alarms are re-armed when the boot broadcast arrives or the app is next opened. Missed runs are recorded as skipped, never as successful.
+* A force-stop from Settings cancels every alarm until the app is opened again (an Android rule).
+* Personal WhatsApp steps need you: the phone must be unlocked and you tap Send.

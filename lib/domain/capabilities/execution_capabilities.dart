@@ -49,6 +49,7 @@ class CapabilityIssue {
 /// cloud mapper only translates what it accepts. Keep it honest: only claim
 /// support the matching execution adapter really implements.
 abstract final class ExecutionCapabilities {
+  static const String _gmailDevice = 'Gmail works through Autometa Cloud (your Google sign-in is stored encrypted on the server, never on the phone). Switch this automation to Cloud.';
   static const String _osNote = 'Runs on time only while Android allows it (battery saver, exact-alarm and notification permissions).';
 
   /// Cloud condition operators (server/src/cloud/engine.js evalRule).
@@ -74,6 +75,9 @@ abstract final class ExecutionCapabilities {
             cloudNote: 'One-off date reminders run only on this device for now. Use a repeating schedule for Cloud.', deviceNote: _osNote),
         AppEventTrigger() => const Capability(CapabilitySupport.onDevice,
             cloudNote: 'Phone events (charging, boot, connectivity…) only happen on the phone.'),
+        GmailTrigger() => const Capability(CapabilitySupport.cloud,
+            cloudNote: 'Autometa Cloud checks your connected Gmail about every minute.',
+            deviceNote: _gmailDevice),
         WebhookTrigger() => const Capability(CapabilitySupport.cloud,
             deviceNote: 'A phone can\'t receive webhooks from the internet. Use Cloud for webhook triggers.'),
       };
@@ -99,6 +103,7 @@ abstract final class ExecutionCapabilities {
         OpenUrlStep() => const Capability(CapabilitySupport.onDevice, cloudNote: 'Opening a link needs your phone.'),
         SetVariableStep() => const Capability(CapabilitySupport.onDevice, cloudNote: 'Variables blocks run on this device for now.'),
         ConditionStep() => const Capability(CapabilitySupport.both),
+        GmailSendStep() => const Capability(CapabilitySupport.cloud, cloudNote: 'Sends from the Gmail account connected to Autometa Cloud.', deviceNote: _gmailDevice),
       };
 
   /// Block-picker level support (before the block is configured).
@@ -112,6 +117,7 @@ abstract final class ExecutionCapabilities {
         StepKind.clipboard => const Capability(CapabilitySupport.onDevice, cloudNote: 'The clipboard exists only on your phone.'),
         StepKind.openUrl => const Capability(CapabilitySupport.onDevice, cloudNote: 'Opening a link needs your phone.'),
         StepKind.setVariable => const Capability(CapabilitySupport.onDevice, cloudNote: 'Runs on this device for now.'),
+        StepKind.gmailSend => const Capability(CapabilitySupport.cloud, cloudNote: 'Sends from your Gmail connected to Autometa Cloud.', deviceNote: _gmailDevice),
       };
 
   static Capability triggerType(TriggerType t) => switch (t) {
@@ -120,10 +126,11 @@ abstract final class ExecutionCapabilities {
         TriggerType.dateTime => const Capability(CapabilitySupport.onDevice, cloudNote: 'One-off dates run only on this device for now.'),
         TriggerType.appEvent => const Capability(CapabilitySupport.onDevice, cloudNote: 'Phone events only happen on the phone.'),
         TriggerType.webhook => const Capability(CapabilitySupport.cloud, deviceNote: 'A phone can\'t receive webhooks. Use Cloud.'),
+        TriggerType.gmailNewEmail => const Capability(CapabilitySupport.cloud, cloudNote: 'Checked by Autometa Cloud about every minute.', deviceNote: _gmailDevice),
       };
 
   static String stepTitle(WorkflowStep s) => s.label?.trim().isNotEmpty == true ? s.label!.trim() : switch (s) {
-        WhatsAppStep(:final WhatsAppMode mode) => mode == WhatsAppMode.send ? 'Send WhatsApp message' : 'Prepare WhatsApp message',
+        WhatsAppStep(:final WhatsAppMode mode) => mode == WhatsAppMode.send ? 'WhatsApp Business: send message' : 'Personal WhatsApp: prepare message (you tap Send)',
         _ => s.kind.label,
       };
 
@@ -155,11 +162,13 @@ abstract final class ExecutionCapabilities {
           if (!topLevel || i != steps.length - 1) {
             out.add(CapabilityIssue(stepId: s.id, label: 'Condition', reason: 'In Cloud a condition must be the last block (its THEN blocks run after it). Move other blocks above it.'));
           }
-          if (!cloudOperators.containsKey(s.condition.operator)) {
-            out.add(CapabilityIssue(stepId: s.id, label: 'Condition', reason: '"${s.condition.operator.label}" isn\'t available in Cloud yet.'));
-          }
-          if (cloudField.firstMatch(s.condition.left) == null) {
-            out.add(CapabilityIssue(stepId: s.id, label: 'Condition', reason: 'In Cloud the left side must be a single variable such as {{payload.status}}.'));
+          for (final Condition c in s.conditions) {
+            if (!cloudOperators.containsKey(c.operator)) {
+              out.add(CapabilityIssue(stepId: s.id, label: 'Condition', reason: '"${c.operator.label}" isn\'t available in Cloud yet.'));
+            }
+            if (cloudField.firstMatch(c.left) == null) {
+              out.add(CapabilityIssue(stepId: s.id, label: 'Condition', reason: 'In Cloud the left side must be a single variable such as {{payload.status}}.'));
+            }
           }
         }
         _steps(s.thenSteps, mode, out, topLevel: false);

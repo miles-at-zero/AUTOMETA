@@ -270,6 +270,7 @@ class _TriggerEditorState extends State<TriggerEditor> {
       ? widget.initial as DateTimeTrigger
       : DateTimeTrigger(at: DateTime.now().add(const Duration(hours: 1)));
   late String _event = widget.initial is AppEventTrigger ? (widget.initial as AppEventTrigger).event : 'app_opened';
+  late String _gmailQuery = widget.initial is GmailTrigger ? (widget.initial as GmailTrigger).query : '';
 
   WorkflowTrigger _build() => switch (_type) {
         TriggerType.schedule => _schedule,
@@ -279,6 +280,7 @@ class _TriggerEditorState extends State<TriggerEditor> {
         TriggerType.webhook => widget.initial is WebhookTrigger
             ? widget.initial
             : WebhookTrigger(token: _uuid.v4().replaceAll('-', '')),
+        TriggerType.gmailNewEmail => GmailTrigger(query: _gmailQuery.trim()),
       };
 
   Future<void> _pickTime() async {
@@ -414,6 +416,22 @@ class _TriggerEditorState extends State<TriggerEditor> {
                 ],
                 onChanged: (String? v) => setState(() => _event = v ?? _event),
               ),
+            if (_type == TriggerType.gmailNewEmail) ...<Widget>[
+              TextFormField(
+                initialValue: _gmailQuery,
+                decoration: const InputDecoration(
+                  labelText: 'Only emails matching (Gmail search)',
+                  hintText: 'from:billing@example.com subject:invoice',
+                  helperText: 'Same syntax as the Gmail search box. Leave empty for every new email.',
+                  helperMaxLines: 3,
+                ),
+                onChanged: (String v) => _gmailQuery = v,
+              ),
+              const SizedBox(height: AutometaSpacing.sm),
+              const Text('Runs in Autometa Cloud with the Gmail account you connected there. Cloud checks about '
+                  'every minute; emails that arrived before you turned the automation on are ignored. '
+                  'Use {{email.from}}, {{email.subject}} and {{email.snippet}} in later blocks.'),
+            ],
             if (_type == TriggerType.webhook)
               const Text('A secret token is generated for this workflow. Configure the inbound '
                   'endpoint under Connections → Webhooks. Webhooks only reach the device while '
@@ -589,6 +607,7 @@ WorkflowStep newStep(StepKind kind, String recipient) {
       ),
     StepKind.delay => DelayStep(id: id, seconds: 1800),
     StepKind.setVariable => SetVariableStep(id: id, name: 'message', value: ''),
+    StepKind.gmailSend => GmailSendStep(id: id),
   };
 }
 
@@ -628,6 +647,52 @@ class _StepEditorState extends State<_StepEditor> {
         for (final String v in const <String>['name', 'day', 'date', 'time', 'greeting', 'ai_output', 'message'])
           ActionChip(label: Text('{{$v}}'), onPressed: () => insert('{{$v}}')),
       ]);
+
+  ConditionStep _withRule(int i, Condition c) {
+    final ConditionStep st = _s as ConditionStep;
+    if (i == 0) return st.copyWith(condition: c);
+    final List<Condition> more = <Condition>[...st.more];
+    more[i - 1] = c;
+    return st.copyWith(more: more);
+  }
+
+  Widget _ruleEditor(int i, Condition rule, {required bool removable}) => Card(
+        margin: const EdgeInsets.only(bottom: AutometaSpacing.md),
+        child: Padding(
+          padding: const EdgeInsets.all(AutometaSpacing.md),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
+            Row(children: <Widget>[
+              Expanded(child: Text('Condition ${i + 1}', style: Theme.of(context).textTheme.labelLarge)),
+              if (removable)
+                IconButton(
+                  tooltip: 'Remove condition',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() {
+                    final ConditionStep st = _s as ConditionStep;
+                    _s = st.copyWith(more: <Condition>[...st.more]..removeAt(i - 1));
+                  }),
+                ),
+            ]),
+            _field('Check this value', rule.left,
+                (String v) => _s = _withRule(i, (_s as ConditionStep).conditions[i].copyWith(left: v))),
+            DropdownButtonFormField<ConditionOperator>(
+              value: rule.operator,
+              decoration: const InputDecoration(labelText: 'Comparison'),
+              isExpanded: true,
+              items: <DropdownMenuItem<ConditionOperator>>[
+                for (final ConditionOperator o in ConditionOperator.values)
+                  DropdownMenuItem<ConditionOperator>(value: o, child: Text(o.label)),
+              ],
+              onChanged: (ConditionOperator? o) =>
+                  setState(() => _s = _withRule(i, (_s as ConditionStep).conditions[i].copyWith(operator: o))),
+            ),
+            const SizedBox(height: AutometaSpacing.md),
+            if (!rule.operator.isUnary)
+              _field('Compare with', rule.right,
+                  (String v) => _s = _withRule(i, (_s as ConditionStep).conditions[i].copyWith(right: v))),
+          ]),
+        ),
+      );
 
   List<Widget> _body() {
     final WorkflowStep s = _s;
@@ -734,24 +799,42 @@ class _StepEditorState extends State<_StepEditor> {
               helper: 'Android only lets an app open links while it is in the foreground.'),
         ];
       case ConditionStep():
+        final List<Condition> rules = s.conditions;
         return <Widget>[
-          _field('Left value', s.condition.left,
-              (String v) => _s = (_s as ConditionStep).copyWith(condition: (_s as ConditionStep).condition.copyWith(left: v))),
-          DropdownButtonFormField<ConditionOperator>(
-            value: s.condition.operator,
-            decoration: const InputDecoration(labelText: 'Operator'),
-            isExpanded: true,
-            items: <DropdownMenuItem<ConditionOperator>>[
-              for (final ConditionOperator o in ConditionOperator.values)
-                DropdownMenuItem<ConditionOperator>(value: o, child: Text(o.label)),
-            ],
-            onChanged: (ConditionOperator? o) => setState(() => _s = s.copyWith(condition: s.condition.copyWith(operator: o))),
+          if (rules.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AutometaSpacing.md),
+              child: SegmentedButton<bool>(
+                segments: const <ButtonSegment<bool>>[
+                  ButtonSegment<bool>(value: false, label: Text('All must match (AND)')),
+                  ButtonSegment<bool>(value: true, label: Text('Any can match (OR)')),
+                ],
+                selected: <bool>{s.matchAny},
+                onSelectionChanged: (Set<bool> v) => setState(() => _s = (_s as ConditionStep).copyWith(matchAny: v.first)),
+              ),
+            ),
+          for (int i = 0; i < rules.length; i++)
+            KeyedSubtree(
+              key: ValueKey<String>('rule-$i-${rules.length}'),
+              child: _ruleEditor(i, rules[i], removable: i > 0),
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Add another condition'),
+              onPressed: rules.length >= 5
+                  ? null
+                  : () => setState(() {
+                        final ConditionStep c = _s as ConditionStep;
+                        _s = c.copyWith(more: <Condition>[...c.more, const Condition(left: '', operator: ConditionOperator.equals)]);
+                      }),
+            ),
           ),
-          const SizedBox(height: AutometaSpacing.md),
-          if (!s.condition.operator.isUnary)
-            _field('Right value', s.condition.right,
-                (String v) => _s = (_s as ConditionStep).copyWith(condition: (_s as ConditionStep).condition.copyWith(right: v))),
-          Text('Add blocks to the IF and ELSE branches from the builder.', style: Theme.of(context).textTheme.bodySmall),
+          Text(
+              'Use a variable on the left, e.g. {{day}} or, in Cloud, {{email.subject}} / {{payload.status}}. '
+              'Add blocks to the IF and ELSE branches from the builder.',
+              style: Theme.of(context).textTheme.bodySmall),
         ];
       case DelayStep():
         return <Widget>[
@@ -760,6 +843,14 @@ class _StepEditorState extends State<_StepEditor> {
               type: TextInputType.number,
               helper: 'Maximum ${EngineLimits.maxDelayStep.inHours} hours. Long waits are handed to the Android '
                   'scheduler and may run a little late under Doze.'),
+        ];
+      case GmailSendStep():
+        return <Widget>[
+          _field('To', s.to, (String v) => _s = (_s as GmailSendStep).copyWith(to: v),
+              type: TextInputType.emailAddress, helper: 'One or more addresses separated by commas, or a variable.'),
+          _field('Subject', s.subject, (String v) => _s = (_s as GmailSendStep).copyWith(subject: v)),
+          _field('Message', s.body, (String v) => _s = (_s as GmailSendStep).copyWith(body: v), maxLines: 5),
+          Text('Sent from the Gmail account connected to Autometa Cloud. Cloud only.', style: Theme.of(context).textTheme.bodySmall),
         ];
       case SetVariableStep():
         return <Widget>[

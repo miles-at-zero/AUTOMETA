@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../business/business_api.dart';
 import '../../cloud/cloud_session.dart';
@@ -17,7 +18,8 @@ class CloudAccountScreen extends StatefulWidget {
 }
 
 class _CloudAccountScreenState extends State<CloudAccountScreen> {
-  late final TextEditingController _url = TextEditingController(text: context.read<CloudSession>().serverUrl);
+  late final TextEditingController _url = TextEditingController(
+      text: context.read<CloudSession>().serverUrl.isEmpty ? CloudSession.defaultServerUrl : context.read<CloudSession>().serverUrl);
   final TextEditingController _email = TextEditingController();
   final TextEditingController _password = TextEditingController();
   final TextEditingController _name = TextEditingController();
@@ -27,14 +29,23 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
   List<Json>? _integrations;
   List<Json>? _connections;
 
+  late final AppLifecycleListener _life;
+
   @override
   void initState() {
     super.initState();
+    _life = AppLifecycleListener(onResume: () {
+      if (_awaitingOAuth) {
+        _awaitingOAuth = false;
+        _loadConnections();
+      }
+    });
     if (context.read<CloudSession>().signedIn) _loadConnections();
   }
 
   @override
   void dispose() {
+    _life.dispose();
     _url.dispose();
     _email.dispose();
     _password.dispose();
@@ -89,7 +100,20 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
     }
   }
 
+  bool _awaitingOAuth = false;
+
+  /// Google sign-in happens in the browser; the server stores the tokens.
+  /// When the user comes back we reload the connection list (no fake state).
+  Future<void> _connectOAuth(Json integration, {String? reconnectId}) => _run(() async {
+        final String url = await context.read<CloudSession>().startOAuth(str(integration['id']), connectionId: reconnectId);
+        final bool opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        if (!opened) throw CloudException('Couldn\'t open the browser for Google sign-in.');
+        _awaitingOAuth = true;
+        if (mounted) showToast(context, 'Finish signing in with Google, then come back here.');
+      });
+
   Future<void> _connect(Json integration, {String? reconnectId}) async {
+    if (asMap(integration['auth'])['type'] == 'oauth') return _connectOAuth(integration, reconnectId: reconnectId);
     final List<Json> fields = asList(asMap(integration['auth'])['fields']);
     final Map<String, TextEditingController> ctl = <String, TextEditingController>{
       for (final Json f in fields) str(f['key']): TextEditingController(),
@@ -192,11 +216,12 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
                 if (_integrations == null)
                   const LinearProgressIndicator()
                 else
-                  for (final Json i in _integrations!.where((Json i) => asMap(i['auth'])['type'] == 'token'))
+                  for (final Json i in _integrations!.where((Json i) => <String>['token', 'oauth'].contains(asMap(i['auth'])['type'])))
                     Builder(builder: (BuildContext context) {
                       final Json? conn = _connections?.cast<Json?>().firstWhere((Json? c) => c?['integration'] == i['id'], orElse: () => null);
                       final String status = conn == null ? 'Not connected' : str(conn['status']);
                       final bool healthy = status == 'connected';
+                      final bool available = i['available'] != false;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Panel(
@@ -208,10 +233,13 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
                                 Text(str(i['name']), style: t.titleSmall),
                                 Text(conn == null ? str(i['description']) : '${str(conn['identity'])} · ${status.replaceAll('_', ' ')}',
                                     style: t.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                if (!available)
+                                  Text('Not available on this server: ${str(i['unavailableReason'])}',
+                                      style: t.bodySmall?.copyWith(color: AutometaColors.warning), maxLines: 3, overflow: TextOverflow.ellipsis),
                               ]),
                             ),
                             TextButton(
-                              onPressed: _busy ? null : () => _connect(i, reconnectId: conn == null ? null : str(conn['id'])),
+                              onPressed: _busy || !available ? null : () => _connect(i, reconnectId: conn == null ? null : str(conn['id'])),
                               child: Text(conn == null ? 'Connect' : (healthy ? 'Update' : 'Reconnect')),
                             ),
                           ]),

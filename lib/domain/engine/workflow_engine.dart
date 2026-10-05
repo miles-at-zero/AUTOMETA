@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/logger.dart';
+import '../models/condition.dart';
 import '../models/execution.dart';
 import '../models/execution_status.dart';
 import '../models/step.dart';
@@ -346,19 +347,26 @@ class WorkflowEngine {
 
       // --- IF / ELSE ---------------------------------------------------------
       if (step is ConditionStep) {
-        final ConditionEvaluation evaluation = evaluator.evaluate(step.condition, context.resolver);
+        final List<ConditionEvaluation> evals =
+            step.conditions.map((Condition c) => evaluator.evaluate(c, context.resolver)).toList();
+        final bool passed = step.matchAny
+            ? evals.any((ConditionEvaluation e) => e.result)
+            : evals.every((ConditionEvaluation e) => e.result);
+        final String ruleDetail = <String>[
+          for (int i = 0; i < evals.length; i++) '${evals[i].result ? '✓' : '✕'} ${step.conditions[i].describe()}',
+        ].join(step.matchAny ? ' OR ' : ' AND ');
         results.add(StepExecution(
           stepId: step.id,
           kind: step.kind,
-          title: step.condition.describe(),
+          title: step.describe(),
           outcome: StepOutcome.success,
-          detail: evaluation.result ? 'IF branch' : 'ELSE branch',
+          detail: '${passed ? 'IF branch' : 'ELSE branch'} · $ruleDetail',
           startedAt: time.now(),
           finishedAt: time.now(),
           simulated: context.dryRun,
         ));
         _emitStep(context.executionId, workflow, results.last);
-        for (final WorkflowStep branchStep in (evaluation.result ? step.thenSteps : step.elseSteps).reversed) {
+        for (final WorkflowStep branchStep in (passed ? step.thenSteps : step.elseSteps).reversed) {
           queue.addFirst(branchStep);
         }
         continue;
