@@ -724,9 +724,9 @@ class _StepEditorState extends State<_StepEditor> {
           const SizedBox(height: AutometaSpacing.sm),
           Text(
             s.mode == WhatsAppMode.send
-                ? 'Sends automatically with a Business account, or from your phone when auto-send is on '
-                    '(Connections → WhatsApp). Otherwise it prepares the message and asks for approval.'
-                : 'AUTOMETA opens WhatsApp with the message ready and you tap Send.',
+                ? 'Sends automatically with the official WhatsApp Business API only. If WhatsApp Business '
+                    'isn\'t connected, this block fails with an explanation. It never sends from personal WhatsApp.'
+                : 'Autometa opens WhatsApp with the message ready and you tap Send.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: AutometaSpacing.md),
@@ -735,13 +735,14 @@ class _StepEditorState extends State<_StepEditor> {
           _field('Message', s.message, (String v) => _s = (_s as WhatsAppStep).copyWith(message: v), maxLines: 4),
           _field('Business template name (optional)', s.templateName ?? '',
               (String v) => _s = (_s as WhatsAppStep).copyWith(templateName: v.isEmpty ? null : v)),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Always ask before sending'),
-            subtitle: const Text('Off = send on schedule without asking (needs auto-send or Business)'),
-            value: s.requiresApproval ?? true,
-            onChanged: (bool v) => setState(() => _s = s.copyWith(requiresApproval: v)),
-          ),
+          if (s.mode == WhatsAppMode.send)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Ask me before each WhatsApp Business send'),
+              subtitle: const Text('Off = WhatsApp Business sends on schedule without asking.'),
+              value: s.requiresApproval ?? false,
+              onChanged: (bool v) => setState(() => _s = s.copyWith(requiresApproval: v)),
+            ),
         ];
       case NotificationStep():
         return <Widget>[

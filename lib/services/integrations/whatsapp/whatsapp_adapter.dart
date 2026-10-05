@@ -69,9 +69,8 @@ abstract class WhatsAppAdapter {
   /// never left believing more is possible than is.
   List<String> get limitations;
 
-  /// Real, live verification. Never inferred from stored settings alone.
   /// Whether a `send` step can be completed without the user right now.
-  /// Personal accounts return true only while on-device auto-send is enabled.
+  /// Only the official WhatsApp Business API can; Personal is always false.
   Future<bool> canSendNow() async => capabilities.canSendAutomatically;
 
   Future<IntegrationAvailability> check();

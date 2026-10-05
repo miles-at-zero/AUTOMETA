@@ -21,7 +21,8 @@ import 'whatsapp_models.dart';
 /// | none      | any       | FAILED — "WhatsApp is not connected"            |
 /// | personal  | prepare   | approval → open chat prefilled → user taps Send |
 /// | personal  | open      | open chat (no approval, nothing is prepared)    |
-/// | personal  | send      | downgraded to prepare, approval still required  |
+/// | personal  | send      | FAILED — only WhatsApp Business sends (never    |
+/// |           |           | silently converted to prepare or sent)          |
 /// | business  | send      | approval (if configured) → Cloud API POST       |
 /// | business  | prepare   | approval → Cloud API POST                       |
 /// | business  | open      | FAILED — the Cloud API cannot open a client chat|
@@ -72,16 +73,20 @@ class WhatsAppStepExecutor extends StepExecutor {
     }
 
     final String message = context.resolve(step.message);
-    final WhatsAppMode requested = step.mode;
-    WhatsAppMode mode = requested;
+    final WhatsAppMode mode = step.mode;
 
-    // A `send` request against an adapter that cannot send is downgraded, never
-    // silently treated as delivered.
-    final bool canSendNow = mode == WhatsAppMode.send && await adapter.canSendNow();
-    if (mode == WhatsAppMode.send && !canSendNow) {
-      mode = WhatsAppMode.prepare;
-      _log.info('Downgraded WhatsApp step to prepare: '
-          '${adapter.accountType.label} cannot send automatically');
+    // Automatic sending exists only through the official WhatsApp Business
+    // API. A `send` block without it fails visibly; it is never silently
+    // turned into something else (no prepare fallback, no personal sending).
+    if (mode == WhatsAppMode.send && !await adapter.canSendNow()) {
+      _log.info('WhatsApp send blocked: ${adapter.accountType.label} cannot send automatically');
+      return StepResult.failed(
+        reason: adapter.accountType == WhatsAppAccountType.personal
+            ? 'Personal WhatsApp can\'t send automatically. Switch this block to '
+                '"Personal WhatsApp: prepare" (you tap Send), or use WhatsApp Business.'
+            : 'WhatsApp Business isn\'t connected. Connect it in Connections → WhatsApp.',
+        code: 'whatsapp.send_unavailable',
+      );
     }
 
     if (mode == WhatsAppMode.open && !adapter.capabilities.canOpenConversations) {
@@ -93,7 +98,7 @@ class WhatsAppStepExecutor extends StepExecutor {
     }
 
     final bool needsApproval =
-        _requiresApproval(step: step, adapter: adapter, context: context, autoSend: canSendNow);
+        _requiresApproval(step: step, adapter: adapter, context: context);
 
     if (needsApproval) {
       return StepResult(
@@ -177,20 +182,15 @@ class WhatsAppStepExecutor extends StepExecutor {
     required WhatsAppStep step,
     required WhatsAppAdapter adapter,
     required StepContext context,
-    required bool autoSend,
   }) {
     if (context.dryRun) return false;
     if (context.isApproved(step.id)) return false;
     // Opening a conversation sends nothing, so it is not gated.
     if (step.mode == WhatsAppMode.open) return false;
-    // Personal without auto-send can only hand the message to the user, which
-    // needs them present: always show the "message ready" card, whatever
-    // the block's setting says.
-    if (adapter.accountType == WhatsAppAccountType.personal && !autoSend) return true;
-    final bool? explicit = step.requiresApproval;
-    if (explicit != null) return explicit;
-    // Default policy: personal WhatsApp needs approval unless the user has
-    // turned on on-device auto-send and this step is set to send.
-    return adapter.accountType == WhatsAppAccountType.personal && !autoSend;
+    // Personal WhatsApp always hands the message to the user, who taps Send:
+    // the "message ready" card is shown whatever the block's setting says.
+    if (adapter.accountType == WhatsAppAccountType.personal) return true;
+    // WhatsApp Business (official API): the block's own setting, default no.
+    return step.requiresApproval ?? false;
   }
 }

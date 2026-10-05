@@ -36,7 +36,7 @@ class _WhatsAppConnectionScreenState extends State<WhatsAppConnectionScreen> wit
     if (state == AppLifecycleState.resumed) _refreshAuto();
   }
 
-  Widget _autoSendPanel(BuildContext context) {
+  Widget _personalPanel(BuildContext context) {
     return Panel(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
         Text('How personal WhatsApp works', style: Theme.of(context).textTheme.titleMedium),
@@ -312,9 +312,9 @@ class _WhatsAppConnectionScreenState extends State<WhatsAppConnectionScreen> wit
           _TypeOption(
             selected: _choice == WhatsAppAccountType.personal,
             title: 'Personal Account',
-            body: 'Uses your normal WhatsApp on this phone. By default AUTOMETA opens the chat with the '
-                'message ready and you tap Send. Turn on auto-send and AUTOMETA presses Send itself, as long as '
-                'the phone is unlocked. No WhatsApp Web, no unofficial servers; your chats never leave the phone.',
+            body: 'Uses your normal WhatsApp on this phone. Autometa prepares the message and opens the chat '
+                'with it filled in; you tap Send. Autometa never sends from personal WhatsApp by itself. '
+                'No WhatsApp Web, no unofficial servers; your chats never leave the phone.',
             onTap: () => setState(() => _choice = WhatsAppAccountType.personal),
           ),
           const SizedBox(height: AutometaSpacing.md),
@@ -329,7 +329,7 @@ class _WhatsAppConnectionScreenState extends State<WhatsAppConnectionScreen> wit
           ),
           if (_choice == WhatsAppAccountType.personal) ...<Widget>[
             const SizedBox(height: AutometaSpacing.lg),
-            _autoSendPanel(context),
+            _personalPanel(context),
           ],
           if (business) ...<Widget>[
             const SizedBox(height: AutometaSpacing.lg),

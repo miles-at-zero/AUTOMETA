@@ -45,9 +45,6 @@ enum WhatsAppDeliveryState {
   /// The conversation is open in WhatsApp with the text prefilled.
   handedToUser('handed_to_user', 'Handed to WhatsApp'),
 
-  /// Legacy: records written by the removed consumer auto-send feature.
-  /// Kept only so old history still reads; nothing produces it any more.
-
   /// Nothing was delivered.
   failed('failed', 'Failed'),
 

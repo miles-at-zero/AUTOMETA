@@ -1,6 +1,6 @@
 // End-to-end: boots the real AppServices graph (SQLite, engine, scheduler,
 // execution service, WhatsApp executor) with only the device edges faked:
-// AlarmManager, the WhatsApp app / auto-send service, and the network.
+// AlarmManager, the WhatsApp app, and the network.
 import 'dart:convert';
 
 import 'package:autometa/app_services.dart';

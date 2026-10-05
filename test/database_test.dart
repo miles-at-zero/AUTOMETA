@@ -138,6 +138,29 @@ void main() {
     expect(opened!.host, 'wa.me');
   });
 
+  test('a personal-account "send" block fails visibly: never sent, never silently prepared', () async {
+    final ContactRepository contacts = ContactRepository(db);
+    await contacts.save(const Recipient(id: 'c', alias: 'Dad', displayName: 'Dad', phoneE164: '+2348000000000'));
+    Uri? opened;
+    final WhatsAppIntegration integration = WhatsAppIntegration(
+      personalAdapter: PersonalWhatsAppAdapter(probe: (_) async => true, opener: (Uri u) async {
+        opened = u;
+        return true;
+      }),
+      businessAdapter: BusinessWhatsAppAdapter(apiClient: HttpApiClient(), secrets: InMemorySecretStore()),
+      activeTypeProvider: () async => WhatsAppAccountType.personal,
+      activeTypeWriter: (_) async {},
+    );
+    final StepResult r = await WhatsAppStepExecutor(integration: integration, contacts: contacts).execute(
+      const WhatsAppStep(id: 's', mode: WhatsAppMode.send, account: 'personal', recipient: 'Dad', message: 'Hi'),
+      StepContext.create(workflow: dadWorkflow(), executionId: 'e', dryRun: false, source: TriggerSource.schedule, scheduledFor: DateTime.now()),
+    );
+    expect(r.isFailure, isTrue);
+    expect(r.code, 'whatsapp.send_unavailable');
+    expect(r.outcome, isNot(StepOutcome.awaitingApproval));
+    expect(opened, isNull);
+  });
+
   test('WhatsApp not connected fails with a clear reason', () async {
     final WhatsAppIntegration integration = WhatsAppIntegration(
       personalAdapter: PersonalWhatsAppAdapter(probe: (_) async => true),

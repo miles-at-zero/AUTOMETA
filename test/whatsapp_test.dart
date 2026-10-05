@@ -58,7 +58,7 @@ void main() {
       expect(uri.queryParameters['text'], 'Good morning Dad');
     });
 
-    test('does not send automatically while auto-send is off', () async {
+    test('personal WhatsApp never sends automatically', () async {
       final PersonalWhatsAppAdapter a = PersonalWhatsAppAdapter(probe: (_) async => true, opener: (_) async => true);
       final WhatsAppSendOutcome o = await a.deliver(mode: WhatsAppMode.send, phoneNumberDigits: '234800', body: 'x');
       expect(o.state, WhatsAppDeliveryState.notSupported);
