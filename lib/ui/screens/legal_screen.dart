@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/design_tokens.dart';
+import '../../core/utils/formatters.dart';
 import '../../legal/legal_texts.dart';
 import '../widgets/autometa_widgets.dart';
 
