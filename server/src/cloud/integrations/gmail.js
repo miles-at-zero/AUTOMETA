@@ -112,6 +112,17 @@ export const gmailIntegration = {
   description: 'Start automations from new emails and send email from your Gmail account.',
   docs: 'docs/GMAIL.md',
   auth: { type: 'oauth', provider: 'google', scopes: GMAIL_SCOPES },
+  /** Best-effort: revoke the refresh token at Google when the user disconnects. */
+  async revoke(conn, ctx) {
+    let sec = {};
+    try { sec = JSON.parse(conn.secret || '{}'); } catch { /* nothing to revoke */ }
+    const token = sec.refresh_token || sec.access_token;
+    if (!token) return false;
+    const res = await ctx.fetch('https://oauth2.googleapis.com/revoke', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }).toString(),
+    });
+    return res.ok;
+  },
   available: (env) => googleConfigured(env),
   unavailableReason: 'Unavailable: server configuration required. The server operator must set up Google OAuth (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, PUBLIC_URL).',
   async test(conn, ctx) {

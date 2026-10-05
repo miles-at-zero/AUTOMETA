@@ -67,8 +67,14 @@ jobs:
       - name: build apk
         id: apk
         if: always()
+        env:
+          # Optional repository VARIABLE (not a secret): Settings → Secrets and
+          # variables → Actions → Variables → AUTOMETA_CLOUD_URL. Unset = users
+          # enter the server address in the app (no built-in fallback).
+          CLOUD_URL: ${{ vars.AUTOMETA_CLOUD_URL }}
         run: |
-          flutter build apk --release --flavor standard > build.txt 2>&1; rc=$?
+          if [ -n "$CLOUD_URL" ]; then echo "Building with AUTOMETA_CLOUD_URL=$CLOUD_URL"; else echo "::notice::No AUTOMETA_CLOUD_URL variable: APK has no default Cloud server"; fi
+          flutter build apk --release --flavor standard --dart-define=AUTOMETA_CLOUD_URL="$CLOUD_URL" > build.txt 2>&1; rc=$?
           grep -iE "error|FAILURE|What went wrong" -A2 build.txt | head -40 | while IFS= read -r l; do echo "::error::B $l"; done
           exit $rc
       - name: report logs

@@ -2,7 +2,7 @@
 
 Runs WhatsApp Business automations for the AUTOMETA app's **Business mode**: it receives the
 official WhatsApp Cloud API webhook, runs your workflows, and serves the app's inbox, flows,
-analytics, team, and billing screens. Zero dependencies; Node ≥ 22.5 (built-in SQLite).
+analytics, team, and billing screens. Zero dependencies; Node ≥ 22.13 (built-in SQLite).
 
 ```bash
 cd server

@@ -192,21 +192,41 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
     return { ok: true, message: emailConfigured ? 'If that email has an account, a reset link is on its way.' : 'Password reset email isn\'t set up on this server. Ask the server owner for a reset link.' };
   }, { public: true });
 
-  route('POST', '/v1/auth/reset', async ({ body, ip }) => {
+  async function applyReset(token, password, ip) {
     if (!limiter.hit(`reset:${ip}`, 20, 3600e3)) throw new HttpError(429, 'Too many attempts.');
-    const r = db.prepare('SELECT * FROM password_resets WHERE token_hash = ?').get(sha256(body.token || ''));
+    const r = db.prepare('SELECT * FROM password_resets WHERE token_hash = ?').get(sha256(token || ''));
     if (!r || r.used || r.expires_at < clock()) throw new HttpError(400, 'This reset link is invalid or expired. Request a new one.');
-    const pwErr = passwordProblem(body.password);
+    const pwErr = passwordProblem(password);
     if (pwErr) throw new HttpError(422, pwErr);
-    const hash = await hashPassword(body.password);
+    const hash = await hashPassword(password);
     tx(db, () => {
       db.prepare('UPDATE password_resets SET used = 1 WHERE token_hash = ?').run(r.token_hash);
       db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, r.user_id);
       db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(r.user_id);
     });
     audit({ user: { id: r.user_id }, ip }, 'auth.reset');
+  }
+  route('POST', '/v1/auth/reset', async ({ body, ip }) => {
+    await applyReset(body.token, body.password, ip);
     return { ok: true };
   }, { public: true });
+  // The reset email links here (PUBLIC_URL/reset?token=…). A plain HTML form
+  // (no scripts; the page CSP forbids them) that posts back to POST /reset.
+  route('GET', '/reset', ({ query }) => {
+    const token = String(query.get('token') || '');
+    if (!token) return page('Reset link incomplete', 'Open the full link from the email, or request a new one in the app.', false);
+    return { __html: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reset password</title><body style="font-family:system-ui;background:#0f1220;color:#e8eaf6;display:grid;place-items:center;min-height:90vh;padding:24px"><form method="post" action="/reset" style="max-width:360px;width:100%"><h2>Choose a new password</h2><input type="hidden" name="token" value="${esc(token)}"><p><input type="password" name="password" required minlength="10" autocomplete="new-password" placeholder="New password" style="width:100%;padding:12px;font-size:16px;border-radius:8px;border:1px solid #444"></p><p><button type="submit" style="width:100%;padding:12px;font-size:16px;border-radius:8px;border:0;background:#22d3ee;color:#0f1220">Set password</button></p><p style="opacity:.7">This signs you out on every device.</p></form>` };
+  }, { public: true });
+  route('POST', '/reset', async ({ raw, ip }) => {
+    const f = new URLSearchParams(raw.toString('utf8'));
+    try {
+      await applyReset(f.get('token'), f.get('password'), ip);
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      return page('Password not changed', esc(e.message), false);
+    }
+    return page('Password changed', 'Sign in to Autometa with your new password.', true);
+  }, { public: true, raw: true });
 
   // ------------------------------------------------------------ account
   route('GET', '/v1/me', ({ ctx }) => ({
@@ -363,13 +383,20 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
     audit(ctx, 'connection.reconnect', c.id);
     return { connection: connOut(own('connections', c.id, ctx.ws)), pausedAutomations: affected, message: affected.length ? `Reconnected. ${affected.length} paused automation(s) can be turned back on.` : 'Reconnected.' };
   });
-  route('DELETE', '/v1/connections/:id', ({ ctx, p }) => {
+  route('DELETE', '/v1/connections/:id', async ({ ctx, p }) => {
     const c = own('connections', p.id, ctx.ws);
+    // Revoke at the provider first (Gmail). Best-effort: a provider outage
+    // must never block the user from removing the connection here.
+    let revoked = null;
+    const integ = INTEGRATIONS[c.integration];
+    if (integ?.revoke) {
+      try { revoked = await integ.revoke(engine.connection(c.id, ctx.ws.id), providerCtx()); } catch { revoked = false; }
+    }
     db.prepare('DELETE FROM connections WHERE id = ?').run(c.id);
     const affected = db.prepare(`SELECT id FROM automations WHERE workspace_id = ? AND (steps LIKE ? OR trigger LIKE ?) AND status = 'active'`).all(ctx.ws.id, `%${c.id}%`, `%${c.id}%`);
     for (const a of affected) db.prepare(`UPDATE automations SET status = 'paused', status_reason = ?, next_run_at = NULL WHERE id = ?`).run(`Paused: ${INTEGRATIONS[c.integration]?.name} was disconnected.`, a.id);
     audit(ctx, 'connection.delete', c.id);
-    return { ok: true, pausedAutomations: affected.length };
+    return { ok: true, pausedAutomations: affected.length, ...(revoked === null ? {} : { revokedAtProvider: revoked }) };
   });
   route('GET', '/v1/connections/:id/chats', async ({ ctx, p }) => {
     const c = engine.connection(own('connections', p.id, ctx.ws).id, ctx.ws.id);
@@ -762,7 +789,7 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
   // ------------------------------------------------------------ dispatcher
   /** Returns true when the request was a cloud route. */
   async function handle(req, res, url) {
-    if (!url.pathname.startsWith('/v1/') && !url.pathname.startsWith('/hooks/') && !url.pathname.startsWith('/oauth/')) return false;
+    if (!url.pathname.startsWith('/v1/') && !url.pathname.startsWith('/hooks/') && !url.pathname.startsWith('/oauth/') && url.pathname !== '/reset') return false;
     const r = routes.find((x) => x.method === req.method && x.re.test(url.pathname));
     const send = (status, body) => {
       res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': env.CORS_ORIGIN || '*', 'access-control-allow-headers': 'authorization, content-type, x-admin-key, x-autometa-secret', 'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS', 'cache-control': 'no-store' });

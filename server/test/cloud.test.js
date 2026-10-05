@@ -42,7 +42,7 @@ async function setup({ now = Date.parse('2026-10-05T05:50:00Z') } = {}) {
   };
   const t = async (...a) => { const r = await call(...a); if (r.status >= 300) throw new Error(`${a[0]} ${a[1]} → ${r.status} ${JSON.stringify(r.body)}`); return r.body; };
   const signup = async (email = 'ada@example.com') => (await t('POST', '/v1/auth/signup', { email, password: 'correct horse battery', name: 'Ada', timezone: 'Africa/Lagos' })).token;
-  return { app, clock, tg, call, t, signup, close: () => srv.close() };
+  return { app, base, clock, tg, call, t, signup, close: () => srv.close() };
 }
 
 const tgAutomation = (connectionId, extra = {}) => ({
@@ -78,6 +78,29 @@ test('auth: signup, login, wrong password, logout, reset via admin link, delete'
     assert.equal((await s.call('DELETE', '/v1/me', { password: 'nope' }, t3)).status, 401);
     await s.t('DELETE', '/v1/me', { password: 'a brand new password' }, t3);
     assert.equal((await s.call('POST', '/v1/auth/login', { email: 'ada@example.com', password: 'a brand new password' })).status, 401);
+  } finally { s.close(); }
+});
+
+test('password reset email link opens a working HTML form (GET/POST /reset)', async () => {
+  const s = await setup();
+  try {
+    await s.t('POST', '/v1/auth/signup', { email: 'rose@example.com', password: 'correct horse battery', name: 'Rose' });
+    const users = await s.t('GET', '/v1/admin/users', undefined, null, { 'x-admin-key': 'adm' });
+    const link = await s.t('POST', `/v1/admin/users/${users[0].id}/reset-link`, {}, null, { 'x-admin-key': 'adm' });
+    assert.match(link.link, /\/reset\?token=/);
+    const form = await fetch(`${s.base}/reset?token=${encodeURIComponent(link.token)}`);
+    assert.equal(form.status, 200);
+    const html = await form.text();
+    assert.match(html, /<form method="post" action="\/reset"/);
+    assert.ok(!/<script/i.test(html), 'no scripts on the reset page');
+    const post = (password) => fetch(`${s.base}/reset`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: link.token, password }).toString() });
+    const weak = await (await post('short')).text();
+    assert.match(weak, /Password not changed/);
+    const ok = await (await post('a brand new password')).text();
+    assert.match(ok, /Password changed/);
+    await s.t('POST', '/v1/auth/login', { email: 'rose@example.com', password: 'a brand new password' });
+    assert.match(await (await post('another new password')).text(), /invalid or expired/, 'single-use');
+    assert.match(await (await fetch(`${s.base}/reset`)).text(), /incomplete/);
   } finally { s.close(); }
 });
 

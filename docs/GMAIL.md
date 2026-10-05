@@ -12,6 +12,7 @@ Connect button and any automation using Gmail can't be activated.
 | Tokens encrypted at rest (AES-GCM with `SECRET_KEY`). Never returned by the API and never logged | connections.secret_enc |
 | Access-token refresh. Refreshed tokens are persisted | `accessToken()` |
 | Revoked/expired grant (`invalid_grant`) or 401 → connection `needs_reauth`, automation paused, `connection_reauth` notification with a Reconnect action | engine `onFailure` |
+| User disconnects Gmail → refresh token revoked at Google (`oauth2.googleapis.com/revoke`), best-effort; the local connection is removed even if Google is unreachable, and dependent automations are paused | `DELETE /v1/connections/:id` |
 | Reconnect keeps the same connection id. Paused automations can then be turned back on | `POST /v1/oauth/gmail/start {connectionId}` |
 | Trigger **New email** (Gmail search query), polled about every 60 s by the server scheduler. The cursor starts at activation, so older mail never fires. Each email runs at most once | engine `pollTriggers` |
 | Action **Send an email** (to/subject/body, variables allowed, header-injection guarded). Not idempotent: an ambiguous 5xx is not retried blindly | `send_email` |

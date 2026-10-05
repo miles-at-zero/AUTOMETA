@@ -4,7 +4,7 @@
   "private": true,
   "description": "AUTOMETA Business backend: WhatsApp Cloud API webhooks, conversation workflows, team inbox, analytics, subscriptions.",
   "type": "module",
-  "engines": { "node": ">=22.5" },
+  "engines": { "node": ">=22.13" },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/index.js",
     "test": "node --disable-warning=ExperimentalWarning --test"

@@ -26,6 +26,11 @@ android/app/release/
 android/key.properties
 *.jks
 *.keystore
+*.p12
+*.pfx
+# The PUBLIC development key is tracked on purpose (sideload update continuity).
+# Production keys must never be committed: they come from CI secrets only.
+!android/app/autometa-dev.p12
 
 # ---- Generated launcher icons (large PNGs are generated, keep sources) ----
 android/app/src/main/res/mipmap-*/ic_launcher.png

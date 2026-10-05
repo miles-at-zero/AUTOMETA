@@ -11,7 +11,7 @@ const TG = '123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
 function fakes() {
-  const f = { tg: [], gmailSent: [], inbox: [], refreshValid: true, codes: {}, pushes: [], calls: [] };
+  const f = { tg: [], gmailSent: [], inbox: [], refreshValid: true, codes: {}, pushes: [], calls: [], revoked: [], revokeFails: false };
   const json = (status, body) => new Response(JSON.stringify(body), { status });
   f.fetch = async (url, init = {}) => {
     const u = String(url);
@@ -22,6 +22,7 @@ function fakes() {
       if (m[2] === 'getMe') return json(200, { ok: true, result: { id: 1, username: 'bot', first_name: 'B' } });
       if (m[2] === 'sendMessage') { f.tg.push(JSON.parse(init.body)); return json(200, { ok: true, result: { message_id: f.tg.length } }); }
     }
+    if (u === 'https://oauth2.googleapis.com/revoke') { f.revoked.push(new URLSearchParams(init.body).get('token')); return f.revokeFails ? json(503, {}) : json(200, {}); }
     if (u === 'https://oauth2.googleapis.com/token') {
       const p = new URLSearchParams(init.body);
       if (p.get('grant_type') === 'authorization_code') {
@@ -331,5 +332,21 @@ test('account data: export has data but no secrets; delete removes devices and b
     await s.t('DELETE', '/v1/me', { password: 'correct horse battery' }, s.tok);
     assert.equal(s.app.db.prepare('SELECT COUNT(*) n FROM devices').get().n, 0);
     assert.equal((await s.call('GET', '/v1/me', undefined, s.tok)).status, 401);
+  } finally { s.close(); }
+});
+
+test('disconnecting Gmail revokes the token at Google; a Google outage never blocks removal', async () => {
+  const s = await setup({ GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'csec', PUBLIC_URL: 'https://api.example.com' });
+  try {
+    s.f.revoked = [];
+    const c1 = await connectGmail(s);
+    const r1 = await s.t('DELETE', `/v1/connections/${c1.id}`, undefined, s.tok);
+    assert.equal(r1.revokedAtProvider, true);
+    assert.deepEqual(s.f.revoked, ['rt1'], 'refresh token revoked');
+    s.f.revokeFails = true;
+    const c2 = await connectGmail(s);
+    const r2 = await s.t('DELETE', `/v1/connections/${c2.id}`, undefined, s.tok);
+    assert.equal(r2.revokedAtProvider, false);
+    assert.equal((await s.t('GET', '/v1/connections', undefined, s.tok)).length, 0, 'removed locally anyway');
   } finally { s.close(); }
 });

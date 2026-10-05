@@ -12,7 +12,7 @@ What *has* been exercised:
   * refusal to start without `SECRET_KEY`.
 
 ## 1. Requirements
-* Node ≥ 22.5 (built-in `node:sqlite`) or Docker. There are no npm dependencies.
+* Node ≥ 22.13 (built-in `node:sqlite` without the `--experimental-sqlite` flag; 22.5–22.12 fail at startup) or Docker (`node:22-alpine`, always a current 22.x). There are no npm dependencies.
 * A public **HTTPS** hostname such as `api.example.com`, on Fly.io, Railway, Render, or a VPS behind Caddy/nginx. The Android release build refuses plain-http server addresses.
 * A persistent disk for the SQLite database.
 * **One instance only.** The scheduler loop and the SQLite file are single-process. Scale vertically.
@@ -30,7 +30,7 @@ What *has* been exercised:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | for Gmail | docs/GMAIL.md. Without them, Gmail shows as "Unavailable: server configuration required" and OAuth start returns 503. |
 | `FCM_SERVICE_ACCOUNT_JSON` | for push | docs/NOTIFICATIONS.md. Without it, alerts are stored and every push attempt is logged as `not_configured`. The app falls back to its in-app alerts poll. |
 | `META_APP_SECRET`, `WEBHOOK_VERIFY_TOKEN`, `GRAPH_VERSION` | for WhatsApp Business | server/README.md |
-| `RESEND_API_KEY`, `MAIL_FROM` | for password-reset email | Without them, resets go through the admin endpoint. |
+| `RESEND_API_KEY`, `MAIL_FROM` | for password-reset email | Without them, resets go through the admin endpoint. The emailed link opens `PUBLIC_URL/reset?token=…`, a script-free form served by this server. |
 | `CLOUD_TICK_MS` | optional | Scheduler pass interval; default 5000. |
 
 ## 3. Directories, permissions, database
