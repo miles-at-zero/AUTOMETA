@@ -43,16 +43,12 @@ android {
         }
     }
 
-    // Two editions. Play Protect blocks sideloaded apps that declare an
-    // Accessibility Service, so the default build leaves it out.
+    // Single edition. (The former "autosend" edition, which used an
+    // Accessibility Service to tap Send in consumer WhatsApp, was removed.)
     flavorDimensions += "edition"
     productFlavors {
         create("standard") {
             dimension = "edition"
-        }
-        create("autosend") {
-            dimension = "edition"
-            versionNameSuffix = "-autosend"
         }
     }
 

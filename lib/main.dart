@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'app_services.dart';
+import 'cloud/cloud_session.dart';
 import 'core/utils/logger.dart';
 import 'services/connections/connection_manager.dart';
 import 'services/settings/settings_service.dart';
@@ -18,6 +19,11 @@ Future<void> main() async {
   await services.notifications.initialize();
 
   final AppState state = AppState(services: services);
+  // Cloud automations are run by the backend; this session only lets the app
+  // configure and monitor them. Offline start keeps the token and cached state.
+  final CloudSession cloud = CloudSession(services);
+  state.cloud = cloud;
+  unawaited(cloud.init());
   await state.refresh();
 
   // Re-arm on every launch: covers app updates, force-stops and anything the
@@ -38,6 +44,7 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider<AppState>.value(value: state),
+        ChangeNotifierProvider<CloudSession>.value(value: cloud),
         ChangeNotifierProvider<SettingsService>.value(value: services.settings),
         ChangeNotifierProvider<ConnectionManager>.value(value: services.connections),
       ],

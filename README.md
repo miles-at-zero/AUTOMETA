@@ -1,6 +1,8 @@
 # AUTOMETA
 
-**Trigger → Intelligence → Action.** A mobile-first personal automation command center, built with Flutter for Android.
+**A cross-app automation platform with Cloud and On-device execution.** Trigger → Conditions → Actions, built with Flutter (app) and Node (Cloud backend in `server/`).
+
+**Cloud is the recommended, default execution mode**: Cloud automations run on the Autometa backend and keep running when the app is closed or the phone is offline. **On-device** execution remains for eligible local automations and is subject to Android's background rules. See [docs/EXECUTION.md](docs/EXECUTION.md).
 
 Create scheduled workflows ("every day at 07:00 → WhatsApp → *Good morning Dad*"), branch with IF/ELSE, generate text with AI, call HTTP APIs and webhooks, and watch every run in an honest activity log.
 

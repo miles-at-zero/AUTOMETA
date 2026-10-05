@@ -9,11 +9,13 @@ import 'package:autometa/data/db/app_database.dart';
 import 'package:autometa/data/repositories/recipient.dart';
 import 'package:autometa/domain/engine/approval_request.dart';
 import 'package:autometa/domain/models/execution.dart';
+import 'package:autometa/domain/models/execution_mode.dart';
 import 'package:autometa/domain/models/execution_status.dart';
 import 'package:autometa/domain/models/step.dart';
 import 'package:autometa/domain/models/trigger.dart';
 import 'package:autometa/domain/models/workflow.dart';
 import 'package:autometa/domain/schedule/schedule_calculator.dart';
+import 'package:autometa/domain/validation/workflow_validator.dart';
 import 'package:autometa/services/integrations/whatsapp/personal_whatsapp_adapter.dart';
 import 'package:autometa/services/integrations/whatsapp/whatsapp_models.dart';
 import 'package:autometa/services/net/api_client.dart';
@@ -21,7 +23,6 @@ import 'package:autometa/services/scheduler/alarm_platform.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:timezone/timezone.dart' as tz;
-import 'package:whatsapp_auto_send/whatsapp_auto_send.dart';
 
 /// Behaves like the real Android bindings did before the fix: cancelAll()
 /// only knows alarms armed in *this* process, so after a restart it is a no-op.
@@ -30,10 +31,9 @@ class FreshProcessAlarmPlatform extends RecordingAlarmPlatform {
   Future<void> cancelAll() async => events.add('cancelAll(no-op)');
 }
 
+/// The phone's WhatsApp app. Autometa can only open a prefilled chat; the
+/// user taps Send. There is deliberately no way for Autometa to send here.
 class FakeWhatsAppPhone {
-  bool autoSendOn = true;
-  AutoSendStatus nextResult = AutoSendStatus.sent;
-  final List<String> sent = <String>[];
   final List<Uri> opened = <Uri>[];
 
   PersonalWhatsAppAdapter adapter() => PersonalWhatsAppAdapter(
@@ -42,19 +42,27 @@ class FakeWhatsAppPhone {
           opened.add(u);
           return true;
         },
-        autoSendStatus: () async =>
-            AutoSendServiceStatus(enabled: autoSendOn, running: autoSendOn, whatsappPackage: 'com.whatsapp'),
-        autoSender: (String phone, String text) async {
-          if (nextResult == AutoSendStatus.sent) sent.add('$phone|$text');
-          return AutoSendResult(nextResult, nextResult == AutoSendStatus.sent ? null : 'simulated ${nextResult.name}');
-        },
       );
 }
 
 class FakeGraphApi extends ApiClient {
   final List<ApiRequest> calls = <ApiRequest>[];
+  bool failSends = false;
+
+  /// Messages Meta accepted, as 'digits|text'.
+  List<String> get sent => calls
+      .where((ApiRequest c) => c.method == 'POST' && c.url.contains('/messages'))
+      .map((ApiRequest c) {
+        final Map<String, dynamic> b = jsonDecode(c.body!) as Map<String, dynamic>;
+        return '${b['to']}|${(b['text'] as Map<String, dynamic>?)?['body'] ?? ''}';
+      })
+      .toList();
+
   @override
   Future<ApiResponse> send(ApiRequest request) async {
+    if (failSends && request.method == 'POST') {
+      return ApiResponse(statusCode: 500, body: '{"error":{"message":"Service temporarily unavailable"}}');
+    }
     calls.add(request);
     if (request.method == 'GET') {
       return ApiResponse(statusCode: 200, body: jsonEncode(<String, dynamic>{'id': '1069', 'display_phone_number': '+1 555'}));
@@ -70,7 +78,11 @@ class FakeGraphApi extends ApiClient {
   }
 }
 
-Workflow dad(String id, String name, String time, String message, {String? account, bool? ask = false}) => Workflow(
+// The Dad reminders send automatically, so they use the official WhatsApp
+// Business API. Personal WhatsApp only ever prepares the message (see below).
+Workflow dad(String id, String name, String time, String message,
+        {String? account = 'business', bool? ask = false, WhatsAppMode mode = WhatsAppMode.send}) =>
+    Workflow(
       id: id,
       name: name,
       timeZone: 'Africa/Lagos',
@@ -79,7 +91,7 @@ Workflow dad(String id, String name, String time, String message, {String? accou
       steps: <WorkflowStep>[
         WhatsAppStep(
           id: '$id-s1',
-          mode: WhatsAppMode.send,
+          mode: mode,
           recipient: 'Dad',
           message: message,
           requiresApproval: ask,
@@ -123,6 +135,7 @@ void main() {
     api = FakeGraphApi();
     app = await boot();
     await app.whatsapp.selectType(WhatsAppAccountType.personal);
+    await app.saveWhatsAppBusinessConfig(phoneNumberId: '1069', accessToken: 'EAAtest');
     await app.contacts.save(const Recipient(id: 'c1', alias: 'Dad', displayName: 'Dad', phoneE164: '+2348012345678'));
     for (final Workflow w in dads) {
       await app.workflows.save(w);
@@ -159,11 +172,11 @@ void main() {
       final DateTime armedFor = alarms.scheduled[alarmIdFor(w.id)]!;
       final ExecutionRecord r = (await fire(w.id, at: armedFor))!;
       expect(r.status, ExecutionStatus.success, reason: '${w.name}: ${r.failureReason}');
-      expect(r.stepResults.last.code, 'whatsapp.sent_from_phone');
+      expect(r.stepResults.last.code, isNot('whatsapp.handed_to_user'));
       // Re-armed strictly after the slot that just ran.
       expect(alarms.scheduled[alarmIdFor(w.id)]!.isAfter(armedFor), isTrue);
     }
-    expect(phone.sent, <String>[
+    expect(api.sent, <String>[
       '2348012345678|Good morning Dad',
       '2348012345678|Good evening Dad',
       '2348012345678|Good night Dad',
@@ -176,14 +189,14 @@ void main() {
     await fire('wf-morning', at: slot);
     await fire('wf-morning', at: slot);
     await fire('wf-morning', at: slot);
-    expect(phone.sent.length, 1);
+    expect(api.sent.length, 1);
   });
 
   test('alarm delivered hours late (reboot / deep Doze) is skipped, not sent', () async {
     final DateTime fiveHoursAgo = DateTime.now().toUtc().subtract(const Duration(hours: 5));
     final ExecutionRecord r = (await fire('wf-morning', at: fiveHoursAgo))!;
     expect(r.status, ExecutionStatus.skipped);
-    expect(phone.sent, isEmpty);
+    expect(api.sent, isEmpty);
     // Delivery is logged for the Reliability screen.
     expect((await app.diagnostics.history()).single.late.inHours, greaterThanOrEqualTo(4));
   });
@@ -192,7 +205,7 @@ void main() {
     final DateTime late = DateTime.now().toUtc().subtract(const Duration(minutes: 20));
     final ExecutionRecord r = (await fire('wf-morning', at: late))!;
     expect(r.status, ExecutionStatus.success);
-    expect(phone.sent.length, 1);
+    expect(api.sent.length, 1);
   });
 
   test('pause all: alarms cancelled even from a fresh process, maintenance cannot re-arm, runs skip', () async {
@@ -218,63 +231,62 @@ void main() {
       scheduledFor: DateTime.now().toUtc(),
     ))!;
     expect(r.status, ExecutionStatus.skipped);
-    expect(phone.sent, isEmpty);
+    expect(api.sent, isEmpty);
 
     // Resume re-arms everything.
     await fresh.settings.setPaused(false);
     expect((await fresh.scheduler.syncAll()).armed, 3);
   });
 
-  test('personal WhatsApp without auto-send: waits for you, opens the prefilled chat, never claims sent', () async {
-    phone.autoSendOn = false;
-    final ExecutionRecord r = (await fire('wf-morning', at: DateTime.now().toUtc()))!;
+  test('personal WhatsApp: prepares the message, waits for you, opens the prefilled chat, never claims sent', () async {
+    await app.workflows.save(dad('wf-personal', 'Personal Dad', '20:00', 'Good morning Dad', account: 'personal', ask: null, mode: WhatsAppMode.prepare));
+    final ExecutionRecord r = (await fire('wf-personal', at: DateTime.now().toUtc()))!;
     expect(r.status, ExecutionStatus.waitingApproval);
-    expect(phone.sent, isEmpty);
     expect(phone.opened, isEmpty);
 
-    final List<ApprovalTicket> pending = await app.approvals.pending();
-    expect(pending.single.body, 'Good morning Dad');
-
-    final ExecutionRecord after = (await app.execution.resolveApproval(ticketId: pending.single.id, approved: true))!;
+    final ApprovalTicket t = (await app.approvals.pending()).single;
+    final ExecutionRecord after = (await app.execution.resolveApproval(ticketId: t.id, approved: true))!;
     expect(phone.opened.single.host, 'wa.me');
     expect(phone.opened.single.path, '/2348012345678');
     expect(phone.opened.single.queryParameters['text'], 'Good morning Dad');
-    expect(phone.sent, isEmpty, reason: 'the user taps Send, not AUTOMETA');
+    expect(api.sent, isEmpty, reason: 'the user taps Send, not AUTOMETA');
     expect(after.stepResults.last.code, 'whatsapp.handed_to_user');
-    expect(after.stepResults.last.code, isNot('whatsapp.sent_from_phone'));
   });
 
-  test('rejecting the approval sends nothing', () async {
-    phone.autoSendOn = false;
-    await fire('wf-evening', at: DateTime.now().toUtc());
+  test('rejecting the approval opens nothing', () async {
+    await app.workflows.save(dad('wf-personal', 'Personal Dad', '20:00', 'Hi', account: 'personal', ask: null, mode: WhatsAppMode.prepare));
+    await fire('wf-personal', at: DateTime.now().toUtc());
     final ApprovalTicket t = (await app.approvals.pending()).single;
     await app.execution.resolveApproval(ticketId: t.id, approved: false);
     expect(phone.opened, isEmpty);
-    expect(phone.sent, isEmpty);
   });
 
-  test('locked phone fails clearly; a later retry succeeds', () async {
-    phone.nextResult = AutoSendStatus.locked;
+  test('personal account set to "send" is refused by the validator and the adapter', () async {
+    final Workflow bad = dad('wf-bad', 'Silent send', '20:00', 'Hi', account: 'personal');
+    expect(const WorkflowValidator().validate(bad).isValid, isFalse);
+  });
+
+  test('Business API outage fails clearly; a later retry succeeds', () async {
+    api.failSends = true;
     final ExecutionRecord failed = (await fire('wf-night', at: DateTime.now().toUtc()))!;
     expect(failed.status, ExecutionStatus.failed);
-    expect(failed.failureReason, contains('locked'));
-    expect(phone.sent, isEmpty);
+    expect(api.sent, isEmpty);
 
-    phone.nextResult = AutoSendStatus.sent;
+    api.failSends = false;
     final ExecutionRecord retried = (await app.execution.retry(failed.id))!;
-    expect(retried.status, ExecutionStatus.success);
-    expect(phone.sent, <String>['2348012345678|Good night Dad']);
+    expect(retried.status, ExecutionStatus.success, reason: retried.failureReason);
+    expect(api.sent, <String>['2348012345678|Good night Dad']);
   });
 
   test('dry run simulates without sending or consuming the slot', () async {
     final Workflow w = (await app.workflows.byId('wf-morning'))!;
     final report = await app.execution.dryRun(w);
     expect(report.toString(), isNotEmpty);
-    expect(phone.sent, isEmpty);
+    expect(api.sent, isEmpty);
     expect(phone.opened, isEmpty);
     // The real run afterwards still goes out.
     await fire('wf-morning', at: DateTime.now().toUtc());
-    expect(phone.sent.length, 1);
+    expect(api.sent.length, 1);
   });
 
   test('workflows persist across a restart', () async {
@@ -286,20 +298,14 @@ void main() {
     expect(step.mode, WhatsAppMode.send);
   });
 
-  test('per-automation account: Business step uses the Cloud API while others stay personal', () async {
-    await app.saveWhatsAppBusinessConfig(phoneNumberId: '1069', accessToken: 'EAAtest');
-    expect(await app.whatsapp.activeType(), WhatsAppAccountType.personal, reason: 'adding Business must not change the default');
-    await app.workflows.save(dad('wf-biz', 'Biz Dad', '09:00', 'Hello from Business', account: 'business'));
-
-    final ExecutionRecord biz = (await fire('wf-biz', at: DateTime.now().toUtc()))!;
-    expect(biz.status, ExecutionStatus.success, reason: biz.failureReason);
-    final ApiRequest post = api.calls.lastWhere((ApiRequest c) => c.method == 'POST');
-    expect(post.url, contains('/1069/messages'));
-    expect(post.body, contains('Hello from Business'));
-    expect(phone.sent, isEmpty);
-
-    await fire('wf-morning', at: DateTime.now().toUtc());
-    expect(phone.sent, <String>['2348012345678|Good morning Dad']);
+  test('Cloud automations are never armed or run by the phone', () async {
+    final Workflow cloud = dad('wf-cloud', 'Cloud Dad', '09:00', 'Hi').copyWith(executionMode: ExecutionMode.cloud);
+    await app.workflows.save(cloud);
+    await app.scheduler.syncAll();
+    expect(alarms.scheduled.containsKey(alarmIdFor('wf-cloud')), isFalse);
+    final ExecutionRecord? r = await fire('wf-cloud', at: DateTime.now().toUtc());
+    expect(r, isNull);
+    expect(api.sent, isEmpty);
   });
 
   test('a brand-new automation (weekly Sunday 18:00) works with no code changes', () async {

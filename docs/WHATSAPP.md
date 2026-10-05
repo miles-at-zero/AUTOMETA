@@ -31,16 +31,15 @@ Connection check: `GET /{version}/{phone-number-id}?fields=verified_name,display
 
 Delivery/read receipts arrive through Meta **webhooks**, which need a public HTTPS server — a phone cannot receive them directly. Host a small relay (Meta → your server → AUTOMETA webhook trigger) if you want read receipts.
 
-## Update: on-device auto-send (Personal)
+## Policy: no consumer WhatsApp automation
 
-Personal accounts can now send by themselves when the user opts in:
+The former opt-in "auto-send" edition (an Accessibility Service that tapped Send inside consumer WhatsApp) has been **removed**: the plugin, the `autosend` build flavor, the APK and all UI. Autometa will not use the consumer WhatsApp app as an automation backdoor, in either execution mode:
 
-* Local plugin `packages/whatsapp_auto_send` adds an Android **Accessibility Service** scoped to `com.whatsapp` / `com.whatsapp.w4b`.
-* On a `send` step it opens the official click-to-chat link, checks the input box holds exactly the automation's text, presses Send, and reports **"Sent from your phone"** only after WhatsApp clears the input box.
-* The screen can be woken, but a PIN/pattern/biometric lock is never bypassed. If the phone is locked, the step fails with a clear reason and is retried.
-* If Send was tapped but not confirmed, the step fails **without retry** so no duplicate message goes out.
-* Default approval policy: personal steps need approval unless auto-send is on and the step mode is "Send message".
-* Each WhatsApp block can choose **Default / My WhatsApp / Business API** (`account` field in the step JSON).
-* WhatsApp's terms do not sanction automation. The app says so before the user enables it.
+* no Accessibility or UI automation, simulated taps, unofficial clients/protocols or WhatsApp Web scraping;
+* **personal WhatsApp** = *prepare → you confirm → you tap Send* (official `wa.me` click-to-chat). Runs on this device; it is never reported as "sent";
+* **automatic sending** only through the official **WhatsApp Business API** (on this phone or from Autometa Cloud);
+* a step set to "send" on a personal account is rejected by the validator and by the adapter.
+
+Each WhatsApp block can still choose **Default / My WhatsApp / Business API** (`account` field in the step JSON).
 
 Business Cloud API setup steps are shown in-app under Connections → WhatsApp → Business → "Setup guide".

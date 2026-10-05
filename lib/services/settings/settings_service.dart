@@ -4,6 +4,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/utils/logger.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../domain/engine/engine_ports.dart';
+import '../../domain/models/execution_mode.dart';
 import '../notifications/notification_service.dart';
 import '../scheduler/alarm_platform.dart';
 
@@ -34,6 +35,18 @@ class SettingsService extends ChangeNotifier implements EngineStateProvider {
   Map<String, String> _customVariables = <String, String>{};
   NotificationPreferences _notificationPreferences = const NotificationPreferences();
   String? _timeZone;
+  ExecutionMode _defaultExecution = ExecutionMode.recommended;
+
+  static const String defaultExecutionKey = 'execution.default_mode';
+
+  /// Mode pre-selected for NEW automations. Never changes existing ones.
+  ExecutionMode get defaultExecution => _defaultExecution;
+
+  Future<void> setDefaultExecution(ExecutionMode mode) async {
+    _defaultExecution = mode;
+    await repository.set(defaultExecutionKey, mode.wire);
+    notifyListeners();
+  }
 
   bool get loaded => _loaded;
 
@@ -63,6 +76,7 @@ class SettingsService extends ChangeNotifier implements EngineStateProvider {
     _developerMode = all[SettingKeys.developerMode] == 'true';
     _notificationPreferences = NotificationPreferences.fromMap(all);
     _customVariables = await variables.all();
+    _defaultExecution = ExecutionMode.fromWire(all[defaultExecutionKey], fallback: ExecutionMode.recommended);
 
     try {
       _notificationsPermitted = await platform.notificationsPermitted;

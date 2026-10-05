@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../capabilities/execution_capabilities.dart';
 import '../models/step.dart';
 import '../models/trigger.dart';
 import '../models/workflow.dart';
@@ -56,6 +57,17 @@ class WorkflowValidator {
 
   ValidationResult validate(Workflow workflow) {
     final List<ValidationIssue> issues = <ValidationIssue>[];
+
+    // Capability check for the selected execution mode: an automation can't be
+    // armed in a mode that can't actually execute every block.
+    for (final CapabilityIssue c in ExecutionCapabilities.check(workflow, workflow.executionMode)) {
+      issues.add(ValidationIssue(
+        severity: IssueSeverity.error,
+        message: '${c.label} can\'t run ${workflow.isCloud ? 'in Cloud' : 'on this device'}. ${c.reason}',
+        stepId: c.stepId,
+        code: 'capability.${workflow.executionMode.wire}',
+      ));
+    }
 
     if (workflow.name.trim().isEmpty) {
       issues.add(const ValidationIssue(
@@ -204,7 +216,7 @@ class WorkflowValidator {
         if (mode == WhatsAppMode.send) {
           issues.add(ValidationIssue(
             severity: IssueSeverity.warning,
-            message: 'Automatic sending only works on a connected WhatsApp Business account',
+            message: 'Automatic sending uses the official WhatsApp Business API. Connect a Business account, or switch to "Prepare message".',
             stepId: step.id,
             code: 'whatsapp.send_requires_business',
           ));

@@ -14,12 +14,15 @@ bool boolOf(Object? o) => o == true;
 
 /// Error from the AUTOMETA Business server, with a human message.
 class BusinessApiException implements Exception {
-  BusinessApiException(this.status, this.message, {this.requiredPlan, this.errors = const <String>[]});
+  BusinessApiException(this.status, this.message, {this.requiredPlan, this.errors = const <String>[], this.body = const <String, dynamic>{}});
 
   final int status;
   final String message;
   final String? requiredPlan;
   final List<String> errors;
+
+  /// Full JSON error body (e.g. Cloud `validation` / `fix`).
+  final Json body;
 
   bool get isUpgrade => status == 402;
 
@@ -55,13 +58,14 @@ class BusinessApi {
     } catch (_) {
       decoded = null;
     }
-    if (res.statusCode != 200) {
+    if (res.statusCode < 200 || res.statusCode >= 300) {
       final Json m = asMap(decoded);
       throw BusinessApiException(
         res.statusCode,
         str(m['error']).isEmpty ? 'Request failed (${res.statusCode})' : str(m['error']),
         requiredPlan: m['requiredPlan'] == null ? null : str(m['requiredPlan']),
         errors: asStrings(m['errors']),
+        body: m,
       );
     }
     return decoded;

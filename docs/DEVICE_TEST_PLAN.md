@@ -11,9 +11,10 @@ Automated tests run on every push on GitHub's build machines: `flutter analyze`,
 | Alarm delivered 5 h late (reboot/Doze) → Skipped, not sent | ✅ automated |
 | Alarm 20 min late → still runs | ✅ automated |
 | Pause all from a fresh process cancels every alarm; maintenance can't re-arm; stray alarm skips | ✅ automated (found and fixed 2 bugs) |
-| Personal without auto-send → "message ready" card → wa.me link with the text → never "sent" | ✅ automated |
+| Personal WhatsApp → "message ready" card → wa.me link with the text → never "sent"; "send" on personal is refused | ✅ automated |
 | Reject → nothing sent | ✅ automated |
-| Phone locked → clear failure; retry later succeeds | ✅ automated |
+| Business API outage → clear failure; retry later succeeds | ✅ automated |
+| Cloud automations are never armed or run by the phone | ✅ automated |
 | Dry run sends nothing and doesn't consume the slot | ✅ automated |
 | Workflows survive restart | ✅ automated |
 | Per-automation Business step hits `/{phone-id}/messages`; default stays Personal | ✅ automated (fake Graph API) |
@@ -30,9 +31,9 @@ Use **Settings → Background reliability**. Each test sets a real alarm and not
 | 4 | Battery optimisation ON | repeat 1 with optimisation on | note the delay |
 | 5 | Battery optimisation OFF | repeat 1 after "Exempt" | ≤ 1 min late |
 | 6 | Restart | "In 15 min", reboot | fires after boot |
-| 7 | Auto-send | Make "Test" automation to yourself 2 min ahead, phone unlocked | message in WhatsApp; run says "Sent from your phone" |
-| 8 | Auto-send while locked (with PIN) | same, phone locked | run fails "Phone is locked", nothing sent |
-| 9 | Personal hand-off | auto-send off | card + notification "message ready"; tap → chat prefilled |
+| 7 | Cloud | sign in, Cloud automation "in 2 min" with a notification step, then close the app and turn on airplane mode | run appears in Activity as ☁️ once back online |
+| 8 | Move to Cloud | open an On-device notification automation → Move to Cloud | badge becomes "Cloud • Recommended"; no local alarm |
+| 9 | Personal hand-off | personal WhatsApp "Prepare message" | card + notification "message ready"; tap → chat prefilled |
 | 10 | Business | complete wizard with Meta test number, send to a tester number | message arrives; run shows "Delivered to WhatsApp" |
 
 Infinix (XOS): also turn on Phone Master → Auto-start for AUTOMETA, set battery to "No restrictions", and lock the app in recents. The reliability screen links to these settings. Never force-stop the app.

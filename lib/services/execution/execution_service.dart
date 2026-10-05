@@ -61,8 +61,8 @@ class ExecutionService {
       _log.warn('Alarm fired for unknown workflow $workflowId');
       return null;
     }
-    if (!workflow.enabled) {
-      _log.info('Alarm fired for disabled workflow "${workflow.name}"');
+    if (!workflow.runsLocally) {
+      _log.info('Alarm fired for disabled or Cloud workflow "${workflow.name}"');
       return null;
     }
 
@@ -116,7 +116,8 @@ class ExecutionService {
     Map<String, String> variables = const <String, String>{},
   }) async {
     final Workflow? workflow = await workflows.byId(workflowId);
-    if (workflow == null) return null;
+    // Cloud automations receive their events on the backend.
+    if (workflow == null || workflow.isCloud) return null;
     final ExecutionRecord record = await engine.execute(
       workflow,
       source: source,
@@ -202,7 +203,7 @@ class ExecutionService {
     final DateTime now = DateTime.now();
     final List<Workflow> enabled = await workflows.getEnabled();
 
-    for (final Workflow workflow in enabled) {
+    for (final Workflow workflow in enabled.where((Workflow w) => w.runsLocally)) {
       final DateTime? next = calculator.nextOccurrence(workflow);
       if (next == null) continue;
 

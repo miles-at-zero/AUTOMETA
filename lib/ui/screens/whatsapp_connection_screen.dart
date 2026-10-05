@@ -9,7 +9,6 @@ import '../../services/connections/connection_manager.dart';
 import '../../services/connections/connection_state.dart';
 import '../../services/integrations/integration.dart';
 import '../../services/integrations/whatsapp/whatsapp_models.dart';
-import 'package:whatsapp_auto_send/whatsapp_auto_send.dart';
 import '../widgets/autometa_widgets.dart';
 import 'connections_screen.dart';
 
@@ -23,106 +22,33 @@ class WhatsAppConnectionScreen extends StatefulWidget {
 
 class _WhatsAppConnectionScreenState extends State<WhatsAppConnectionScreen> with WidgetsBindingObserver {
   WhatsAppAccountType? _choice;
-  AutoSendServiceStatus? _auto;
   final TextEditingController _phoneId = TextEditingController();
   final TextEditingController _token = TextEditingController();
   final TextEditingController _version = TextEditingController(text: WhatsAppBusinessConfig.defaultApiVersion);
   bool _busy = false;
 
+  Future<void> _refreshAuto() async {
+    await context.read<AppServices>().connections.refresh(IntegrationIds.whatsapp);
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Coming back from Android's Accessibility settings: re-check.
     if (state == AppLifecycleState.resumed) _refreshAuto();
   }
 
-  Future<void> _refreshAuto() async {
-    final AppServices s = context.read<AppServices>();
-    final AutoSendServiceStatus st = await s.whatsapp.personalAdapter.autoSendStatus();
-    if (!mounted) return;
-    setState(() => _auto = st);
-    await s.connections.refresh(IntegrationIds.whatsapp);
-  }
-
-  Future<void> _enableAutoSend() async {
-    final bool? ok = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext c) => AlertDialog(
-        title: const Text('Turn on WhatsApp auto-send?'),
-        content: const SingleChildScrollView(
-          child: Text(
-            'AUTOMETA will open the chat and press Send for you when an automation runs.\n\n'
-            '• It only works inside WhatsApp and only while an automation is sending.\n'
-            '• It does not read, store or upload your chats.\n'
-            '• The phone must be unlocked, or have no screen lock (it can wake the screen).\n'
-            '• WhatsApp does not officially support automation. Sending a few personal messages '
-            'is low risk, but bulk or spam-like sending can get an account banned.\n\n'
-            'Next: in Accessibility settings, open "Installed apps" (or "Downloaded apps"), tap '
-            '"AUTOMETA WhatsApp auto-send" and switch it on. On Android 13+ you may first need to '
-            'open App info → ⋮ → "Allow restricted settings".',
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Open settings')),
-        ],
-      ),
-    );
-    if (ok == true) await const WhatsAppAutoSend().openSettings();
-  }
-
   Widget _autoSendPanel(BuildContext context) {
-    final AutoSendServiceStatus? a = _auto;
-    final bool ready = a?.ready ?? false;
-    if (a != null && !a.supported) {
-      return Panel(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          Text('Auto-send from this phone', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          const Text(
-            'Not included in this edition. Google Play Protect blocks sideloaded apps that use Accessibility, '
-            'so this edition leaves it out and you approve each message with one tap instead.\n\n'
-            'To get auto-send, install the "AUTOMETA Auto-send" APK from a computer over USB:\n'
-            'adb install -r autometa-autosend.apk\n\n'
-            'Or use the WhatsApp Business API, which sends automatically with no extra install.',
-          ),
-        ]),
-      );
-    }
-    final String state = a == null
-        ? 'Checking…'
-        : a.whatsappPackage == null
-            ? 'WhatsApp is not installed'
-            : ready
-                ? 'On: automations set to "Send message" send by themselves'
-                : a.enabled
-                    ? 'Switched on but not running yet. Toggle it off and on in Accessibility settings.'
-                    : 'Off: you approve and tap Send for each message';
     return Panel(
-      glow: ready ? AutometaColors.success : null,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-        Row(children: <Widget>[
-          StatusDot(ready ? AutometaColors.success : AutometaColors.warning),
-          const SizedBox(width: 8),
-          Expanded(child: Text('Auto-send from this phone', style: Theme.of(context).textTheme.titleMedium)),
-        ]),
+        Text('How personal WhatsApp works', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 6),
-        Text(state),
-        const SizedBox(height: 10),
-        if (!ready)
-          FilledButton.icon(
-            onPressed: a?.whatsappPackage == null ? null : _enableAutoSend,
-            icon: const Icon(Icons.bolt),
-            label: const Text('Turn on auto-send'),
-          )
-        else
-          OutlinedButton(
-            onPressed: () => const WhatsAppAutoSend().openSettings(),
-            child: const Text('Manage in Accessibility settings'),
-          ),
+        const Text(
+          'When an automation runs, Autometa prepares the message and opens the chat in WhatsApp with it '
+          'filled in. You tap Send. Autometa never sends from your personal WhatsApp by itself.\n\n'
+          'Need fully automatic sending? Use the official WhatsApp Business API (below), on this phone or in Cloud.',
+        ),
       ]),
     );
   }
-
 
   int _wizardStep = 0;
   String? _testResult;
@@ -370,14 +296,10 @@ class _WhatsAppConnectionScreenState extends State<WhatsAppConnectionScreen> wit
               ],
               if (r?.accountType == 'personal') ...<Widget>[
                 const SizedBox(height: 8),
-                const Text('Automatic sending:'),
-                Text(
-                  (_auto?.ready ?? false) ? 'On (from this phone)' : 'Off: turn on auto-send below',
-                  style: TextStyle(color: (_auto?.ready ?? false) ? AutometaColors.success : AutometaColors.warning),
-                ),
+                const Text('Sending: you tap Send in WhatsApp'),
                 const SizedBox(height: 6),
                 StatusPill(
-                  label: (_auto?.ready ?? false) ? 'Personal Account · Auto-send' : 'Personal Account · Approval required',
+                  label: 'Personal Account · You tap Send',
                   color: AutometaColors.secondary,
                 ),
               ],

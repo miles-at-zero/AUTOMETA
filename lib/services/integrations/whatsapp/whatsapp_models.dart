@@ -45,8 +45,8 @@ enum WhatsAppDeliveryState {
   /// The conversation is open in WhatsApp with the text prefilled.
   handedToUser('handed_to_user', 'Handed to WhatsApp'),
 
-  /// Personal account auto-send: AUTOMETA pressed Send on this phone and
-  /// WhatsApp cleared the input box (it accepted the message).
+  /// Legacy: records written by the removed consumer auto-send feature.
+  /// Kept only so old history still reads; nothing produces it any more.
   sentFromPhone('sent_from_phone', 'Sent from your phone'),
 
   /// Nothing was delivered.

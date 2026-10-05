@@ -43,7 +43,7 @@ jobs:
         id: apk
         if: always()
         run: |
-          { flutter build apk --release --flavor standard && flutter build apk --release --flavor autosend; } > build.txt 2>&1; rc=$?
+          flutter build apk --release --flavor standard > build.txt 2>&1; rc=$?
           grep -iE "error|FAILURE|What went wrong" -A2 build.txt | head -40 | while IFS= read -r l; do echo "::error::B $l"; done
           exit $rc
       - name: report logs
@@ -59,8 +59,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp build/app/outputs/flutter-apk/app-standard-release.apk autometa.apk
-          cp build/app/outputs/flutter-apk/app-autosend-release.apk autometa-autosend.apk
           git archive --format=zip --prefix=AUTOMETA/ -o autometa-source.zip HEAD
           gh release delete latest-build -y --cleanup-tag || true
-          gh release create latest-build autometa.apk autometa-autosend.apk autometa-source.zip --prerelease --target "$GITHUB_SHA" \
-            --title "AUTOMETA latest build" --notes "autometa.apk = Standard (installs normally). autometa-autosend.apk = adds WhatsApp auto-send; Play Protect blocks it when sideloaded, so install from a computer with: adb install -r autometa-autosend.apk. Built from $GITHUB_SHA."
+          gh release create latest-build autometa.apk autometa-source.zip --prerelease --target "$GITHUB_SHA" \
+            --title "AUTOMETA latest build" --notes "autometa.apk = Autometa for Android (Cloud + On-device execution). autometa-source.zip = source. Built from $GITHUB_SHA."

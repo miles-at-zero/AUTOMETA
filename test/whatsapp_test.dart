@@ -9,7 +9,6 @@ import 'package:autometa/services/integrations/whatsapp/personal_whatsapp_adapte
 import 'package:autometa/services/integrations/whatsapp/whatsapp_models.dart';
 import 'package:autometa/services/net/api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:whatsapp_auto_send/whatsapp_auto_send.dart';
 
 class FakeApi extends ApiClient {
   FakeApi(this.response);
@@ -23,48 +22,30 @@ class FakeApi extends ApiClient {
 }
 
 void main() {
-  group('personal auto-send', () {
-    const AutoSendServiceStatus on = AutoSendServiceStatus(enabled: true, running: true, whatsappPackage: 'com.whatsapp');
-    PersonalWhatsAppAdapter adapter(AutoSendResult result, {List<String>? log}) => PersonalWhatsAppAdapter(
-          probe: (_) async => true,
-          opener: (_) async => true,
-          autoSendStatus: () async => on,
-          autoSender: (String phone, String text) async {
-            log?.add('$phone|$text');
-            return result;
-          },
-        );
-
-    test('confirmed tap is reported as sent from phone', () async {
-      final List<String> log = <String>[];
-      final PersonalWhatsAppAdapter a = adapter(const AutoSendResult(AutoSendStatus.sent), log: log);
-      expect(await a.canSendNow(), isTrue);
-      final WhatsAppSendOutcome o =
-          await a.deliver(mode: WhatsAppMode.send, phoneNumberDigits: '+234 800 000 0000', body: 'Good morning Dad');
-      expect(o.state, WhatsAppDeliveryState.sentFromPhone);
-      expect(o.succeeded, isTrue);
-      expect(log, <String>['2348000000000|Good morning Dad']);
-    });
-
-    test('locked phone is a retriable failure, never a success', () async {
-      final WhatsAppSendOutcome o = await adapter(const AutoSendResult(AutoSendStatus.locked, 'Phone is locked'))
-          .deliver(mode: WhatsAppMode.send, phoneNumberDigits: '234800', body: 'x');
-      expect(o.state, WhatsAppDeliveryState.failed);
+  group('personal never sends by itself', () {
+    test('send mode is refused and nothing is opened', () async {
+      final List<Uri> opened = <Uri>[];
+      final PersonalWhatsAppAdapter a = PersonalWhatsAppAdapter(probe: (_) async => true, opener: (Uri u) async {
+        opened.add(u);
+        return true;
+      });
+      expect(await a.canSendNow(), isFalse);
+      final WhatsAppSendOutcome o = await a.deliver(mode: WhatsAppMode.send, phoneNumberDigits: '+234 800 000 0000', body: 'Hi');
+      expect(o.state, WhatsAppDeliveryState.notSupported);
       expect(o.succeeded, isFalse);
-      expect(o.retriable, isTrue);
+      expect(opened, isEmpty);
     });
 
-    test('unconfirmed tap is not retried (could duplicate)', () async {
-      final WhatsAppSendOutcome o = await adapter(const AutoSendResult(AutoSendStatus.unconfirmed))
-          .deliver(mode: WhatsAppMode.send, phoneNumberDigits: '234800', body: 'x');
-      expect(o.state, WhatsAppDeliveryState.failed);
-      expect(o.retriable, isFalse);
+    test('prepare hands off to WhatsApp and is not reported as sent', () async {
+      final PersonalWhatsAppAdapter a = PersonalWhatsAppAdapter(probe: (_) async => true, opener: (_) async => true);
+      final WhatsAppSendOutcome o = await a.deliver(mode: WhatsAppMode.prepare, phoneNumberDigits: '2348000000000', body: 'Hi');
+      expect(o.state, WhatsAppDeliveryState.handedToUser);
+      expect(o.handoffUri!.host, 'wa.me');
     });
 
-    test('availability says auto-send is on', () async {
-      final IntegrationAvailability av = await adapter(const AutoSendResult(AutoSendStatus.sent)).check();
-      expect(av.status, ConnectionStatus.connected);
-      expect(av.label, contains('auto-send'));
+    test('availability says approval is required', () async {
+      final IntegrationAvailability av = await PersonalWhatsAppAdapter(probe: (_) async => true, opener: (_) async => true).check();
+      expect(av.status, ConnectionStatus.degraded);
     });
   });
 

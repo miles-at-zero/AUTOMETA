@@ -5,10 +5,13 @@ import 'package:uuid/uuid.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/autometa_theme.dart';
 import '../../core/theme/design_tokens.dart';
+import '../../cloud/cloud_session.dart';
 import '../../core/utils/formatters.dart';
+import '../../domain/capabilities/execution_capabilities.dart';
 import '../../domain/engine/engine_ports.dart';
 import '../../domain/engine/variable_resolver.dart';
 import '../../domain/models/condition.dart';
+import '../../domain/models/execution_mode.dart';
 import '../../domain/models/step.dart';
 import '../../domain/models/trigger.dart';
 import '../../domain/models/workflow.dart';
@@ -16,6 +19,8 @@ import '../../domain/validation/workflow_validator.dart';
 import '../../services/settings/settings_service.dart';
 import '../../state/app_state.dart';
 import '../widgets/autometa_widgets.dart';
+import '../widgets/execution_widgets.dart';
+import 'cloud_account_screen.dart';
 import 'dry_run_sheet.dart';
 
 const Uuid _uuid = Uuid();
@@ -54,6 +59,7 @@ class _BuilderScreenState extends State<BuilderScreen> {
           trigger: const ScheduleTrigger(timeOfDay: '07:00'),
           steps: const <WorkflowStep>[],
           enabled: false,
+          executionMode: settings.defaultExecution, // Cloud unless changed in Settings.
         );
     _name = TextEditingController(text: _wf.name);
   }
@@ -66,17 +72,37 @@ class _BuilderScreenState extends State<BuilderScreen> {
 
   void _update(Workflow w) => setState(() => _wf = w);
 
+  /// Drafts may be incomplete for the chosen mode; activation may not.
+  static bool _onlyCapabilityErrors(ValidationResult v) =>
+      v.errors.every((ValidationIssue i) => (i.code ?? '').startsWith('capability.'));
+
   Future<void> _save({required bool enable}) async {
     final ValidationResult v = const WorkflowValidator().validate(_wf.copyWith(name: _name.text));
-    if (!v.isValid) {
+    if (!v.isValid && (enable || !_onlyCapabilityErrors(v))) {
       showToast(context, v.summary, color: AutometaColors.danger.withValues(alpha: 0.3));
       return;
     }
     setState(() => _saving = true);
-    await context.read<AppState>().save(_wf.copyWith(name: _name.text.trim(), enabled: enable));
+    try {
+      await context.read<AppState>().save(_wf.copyWith(name: _name.text.trim(), enabled: enable));
+    } on CloudException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (e.needsAccount) {
+        final bool go = await confirmDialog(context,
+            title: 'Cloud needs an account', message: '${e.message}\n\nOr switch Execution to "On this device".', confirmLabel: 'Sign in');
+        if (go && mounted) await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CloudAccountScreen()));
+      } else if (e.issues.isNotEmpty) {
+        await showMoveBlockedSheet(context, title: 'Can\'t activate in Cloud yet', message: e.message, issues: e.issues, keepLabel: 'Close');
+      } else {
+        showToast(context, e.message, color: AutometaColors.danger.withValues(alpha: 0.3));
+      }
+      return;
+    }
     if (!mounted) return;
     Navigator.of(context).pop(true);
-    showToast(context, enable ? '${_name.text} enabled' : '${_name.text} saved (inactive)');
+    final String where = _wf.isCloud ? 'in Cloud' : 'on this device';
+    showToast(context, enable ? '${_name.text} is active $where' : '${_name.text} saved as a draft');
   }
 
   Future<void> _test() async {
@@ -94,7 +120,9 @@ class _BuilderScreenState extends State<BuilderScreen> {
           IconButton(tooltip: 'Test run', icon: const Icon(Icons.science_outlined), onPressed: _test),
         ],
       ),
-      body: ListView(
+      body: ExecutionModeScope(
+        mode: _wf.executionMode,
+        child: ListView(
         padding: EdgeInsets.all(AutometaSpacing.page(context)),
         children: <Widget>[
           ResponsiveWidth(
@@ -104,8 +132,14 @@ class _BuilderScreenState extends State<BuilderScreen> {
                 decoration: const InputDecoration(labelText: 'Name'),
                 onChanged: (_) => setState(() {}),
               ),
+              const SizedBox(height: AutometaSpacing.lg),
+              ExecutionSelector(
+                workflow: _wf,
+                onChanged: (ExecutionMode m) => _update(_wf.copyWith(executionMode: m)),
+              ),
               const SizedBox(height: AutometaSpacing.xl),
               _TriggerBlock(
+                mode: _wf.executionMode,
                 trigger: _wf.trigger,
                 onChanged: (WorkflowTrigger t) => _update(_wf.copyWith(trigger: t)),
               ),
@@ -128,15 +162,15 @@ class _BuilderScreenState extends State<BuilderScreen> {
                 ),
               const SizedBox(height: AutometaSpacing.lg),
               PrimaryAction(
-                label: widget.isPreview ? 'Create Automation' : 'Save & enable',
+                label: widget.isPreview ? 'Create Automation' : (_wf.isCloud ? 'Activate in Cloud' : 'Activate on this device'),
                 icon: Icons.check,
                 busy: _saving,
                 onPressed: validation.isValid ? () => _save(enable: true) : null,
               ),
               const SizedBox(height: AutometaSpacing.sm),
               OutlinedButton(
-                onPressed: validation.isValid && !_saving ? () => _save(enable: false) : null,
-                child: const Text('Save without enabling'),
+                onPressed: (validation.isValid || _onlyCapabilityErrors(validation)) && !_saving ? () => _save(enable: false) : null,
+                child: const Text('Save draft'),
               ),
               if (widget.isPreview)
                 TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
@@ -144,6 +178,7 @@ class _BuilderScreenState extends State<BuilderScreen> {
             ]),
           ),
         ],
+      ),
       ),
     );
   }
@@ -193,8 +228,9 @@ class _BlockCard extends StatelessWidget {
 }
 
 class _TriggerBlock extends StatelessWidget {
-  const _TriggerBlock({required this.trigger, required this.onChanged});
+  const _TriggerBlock({required this.trigger, required this.onChanged, required this.mode});
   final WorkflowTrigger trigger;
+  final ExecutionMode mode;
   final ValueChanged<WorkflowTrigger> onChanged;
 
   @override
@@ -207,7 +243,7 @@ class _TriggerBlock extends StatelessWidget {
             context: context,
             isScrollControlled: true,
             showDragHandle: true,
-            builder: (_) => TriggerEditor(initial: trigger),
+            builder: (_) => TriggerEditor(initial: trigger, mode: mode),
           );
           if (t != null) onChanged(t);
         },
@@ -216,8 +252,11 @@ class _TriggerBlock extends StatelessWidget {
 }
 
 class TriggerEditor extends StatefulWidget {
-  const TriggerEditor({required this.initial, super.key});
+  const TriggerEditor({required this.initial, this.mode, super.key});
   final WorkflowTrigger initial;
+
+  /// When set, triggers the mode can't run are shown disabled with the reason.
+  final ExecutionMode? mode;
 
   @override
   State<TriggerEditor> createState() => _TriggerEditorState();
@@ -276,7 +315,18 @@ class _TriggerEditorState extends State<TriggerEditor> {
             const SizedBox(height: AutometaSpacing.md),
             Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
               for (final TriggerType t in TriggerType.values)
-                ChoiceChip(label: Text(t.label), selected: _type == t, onSelected: (_) => setState(() => _type = t)),
+                Tooltip(
+                  message: widget.mode == null || ExecutionCapabilities.triggerType(t).supports(widget.mode!)
+                      ? t.label
+                      : ExecutionCapabilities.triggerType(t).noteFor(widget.mode!) ?? 'Unavailable',
+                  child: ChoiceChip(
+                    label: Text(t.label),
+                    selected: _type == t,
+                    onSelected: widget.mode == null || ExecutionCapabilities.triggerType(t).supports(widget.mode!) || _type == t
+                        ? (_) => setState(() => _type = t)
+                        : null,
+                  ),
+                ),
             ]),
             const SizedBox(height: AutometaSpacing.lg),
             if (_type == TriggerType.schedule) ...<Widget>[
@@ -390,14 +440,38 @@ class StepListEditor extends StatelessWidget {
   final int depth;
 
   Future<void> _add(BuildContext context, int index) async {
+    final ExecutionMode? mode = ExecutionModeScope.maybeOf(context);
+    bool ok(StepKind k) => mode == null || ExecutionCapabilities.kind(k).supports(mode);
+    bool allowed(StepKind k) => !(k == StepKind.condition && depth >= EngineLimits.maxConditionDepth - 1);
     final StepKind? kind = await showModalBottomSheet<StepKind>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (BuildContext context) => SafeArea(
         child: ListView(shrinkWrap: true, children: <Widget>[
           for (final StepKind k in StepKind.values)
-            if (!(k == StepKind.condition && depth >= EngineLimits.maxConditionDepth - 1))
-              ListTile(leading: Icon(stepIcon(k)), title: Text(k.label), subtitle: Text(k.blurb), onTap: () => Navigator.pop(context, k)),
+            if (allowed(k) && ok(k))
+              ListTile(
+                leading: Icon(stepIcon(k)),
+                title: Text(k.label),
+                subtitle: Text(mode == null ? k.blurb : (ExecutionCapabilities.kind(k).noteFor(mode) ?? k.blurb)),
+                onTap: () => Navigator.pop(context, k),
+              ),
+          if (mode != null && StepKind.values.any((StepKind k) => allowed(k) && !ok(k))) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text(mode.isCloud ? 'Unavailable in Cloud' : 'Unavailable on this device',
+                  style: Theme.of(context).textTheme.labelLarge),
+            ),
+            for (final StepKind k in StepKind.values)
+              if (allowed(k) && !ok(k))
+                ListTile(
+                  enabled: false,
+                  leading: Icon(stepIcon(k)),
+                  title: Text(k.label),
+                  subtitle: Text(ExecutionCapabilities.kind(k).noteFor(mode) ?? 'Not available here'),
+                ),
+          ],
         ]),
       ),
     );

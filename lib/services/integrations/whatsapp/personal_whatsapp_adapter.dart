@@ -1,5 +1,4 @@
 import 'package:url_launcher/url_launcher.dart' as launcher;
-import 'package:whatsapp_auto_send/whatsapp_auto_send.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/logger.dart';
@@ -11,52 +10,26 @@ import 'whatsapp_models.dart';
 
 typedef UrlProbe = Future<bool> Function(Uri uri);
 typedef UrlOpener = Future<bool> Function(Uri uri);
-typedef AutoSendStatusProbe = Future<AutoSendServiceStatus> Function();
-typedef AutoSender = Future<AutoSendResult> Function(String phoneDigits, String text);
 
 /// Personal-account WhatsApp integration.
 ///
-/// Two delivery paths, both using the WhatsApp app on this phone:
-///
-///  * **Hand-off (default):** the official click-to-chat link opens the chat
-///    with the text prefilled and the user taps Send.
-///  * **On-device auto-send (opt-in):** when the user enables AUTOMETA's
-///    Accessibility Service, AUTOMETA opens the same chat and presses Send
-///    itself. It reports "Sent from your phone" only after WhatsApp clears
-///    the input box, and fails clearly when the phone is locked or WhatsApp
-///    doesn't respond.
-///
-/// Never used: WhatsApp Web scraping, reverse-engineered protocols, session
-/// token extraction, or anti-ban evasion.
+/// The only delivery path is the official click-to-chat hand-off: Autometa
+/// prepares the message, opens the chat with the text filled in, and the user
+/// taps Send. Autometa never sends from the consumer WhatsApp app by itself:
+/// no Accessibility/UI automation, simulated taps, unofficial clients or
+/// WhatsApp Web scraping. Automatic sending is only available through the
+/// official WhatsApp Business API (see BusinessWhatsAppAdapter / Cloud).
 class PersonalWhatsAppAdapter extends WhatsAppAdapter {
-  PersonalWhatsAppAdapter({
-    UrlProbe? probe,
-    UrlOpener? opener,
-    AutoSendStatusProbe? autoSendStatus,
-    AutoSender? autoSender,
-  })  : _probe = probe ?? launcher.canLaunchUrl,
-        _open = opener ?? _launchExternal,
-        _autoStatus = autoSendStatus ?? const WhatsAppAutoSend().status,
-        _autoSend = autoSender ??
-            ((String phone, String text) => const WhatsAppAutoSend().send(phoneDigits: phone, text: text));
+  PersonalWhatsAppAdapter({UrlProbe? probe, UrlOpener? opener})
+      : _probe = probe ?? launcher.canLaunchUrl,
+        _open = opener ?? _launchExternal;
 
   final UrlProbe _probe;
   final UrlOpener _open;
-  final AutoSendStatusProbe _autoStatus;
-  final AutoSender _autoSend;
 
-  /// Whether the auto-send Accessibility Service is on and WhatsApp installed.
-  Future<AutoSendServiceStatus> autoSendStatus() async {
-    try {
-      return await _autoStatus();
-    } catch (error) {
-      _log.warn('Could not read auto-send status', error);
-      return const AutoSendServiceStatus(enabled: false, running: false);
-    }
-  }
-
+  /// Personal accounts can never send without the user.
   @override
-  Future<bool> canSendNow() async => (await autoSendStatus()).ready;
+  Future<bool> canSendNow() async => false;
   final Logger _log = Logger.withTag(LogTags.whatsapp);
 
   /// Scheme used to detect an installed WhatsApp client. Declared in the
@@ -76,8 +49,9 @@ class PersonalWhatsAppAdapter extends WhatsAppAdapter {
 
   @override
   List<String> get limitations => const <String>[
-        'Automatic sending needs auto-send turned on (Accessibility) and the phone unlocked',
-        'Without auto-send you tap Send inside WhatsApp and AUTOMETA cannot confirm delivery',
+        'You tap Send inside WhatsApp; Autometa never sends from personal WhatsApp by itself',
+        'Autometa cannot confirm delivery of messages you send yourself',
+        'For automatic sending, connect the official WhatsApp Business API',
         'Requires the WhatsApp app to be installed on this device',
       ];
 
@@ -107,20 +81,6 @@ class PersonalWhatsAppAdapter extends WhatsAppAdapter {
       );
     }
 
-    final AutoSendServiceStatus auto = await autoSendStatus();
-    if (auto.ready) {
-      return IntegrationAvailability(
-        status: ConnectionStatus.connected,
-        accountType: 'personal',
-        label: 'Personal account · auto-send on',
-        capabilities: <String>[...capabilities.working, 'Auto-send from this phone'],
-        limitations: const <String>[
-          'Sends only while the phone is unlocked (or has no screen lock)',
-          'WhatsApp does not officially support automation; use at your own discretion',
-        ],
-        metadata: const <String, String>{'handoff': 'auto_send'},
-      );
-    }
     return IntegrationAvailability(
       status: ConnectionStatus.degraded,
       accountType: 'personal',
@@ -162,33 +122,11 @@ class PersonalWhatsAppAdapter extends WhatsAppAdapter {
           reason: 'No phone number is stored for that recipient',
         );
       }
-      if (!(await autoSendStatus()).ready) {
-        return const WhatsAppSendOutcome(
-          state: WhatsAppDeliveryState.notSupported,
-          reason: 'Auto-send is off. Turn it on in Connections → WhatsApp, '
-              'or switch the block to "Prepare message".',
-        );
-      }
-      final AutoSendResult r = await _autoSend(digits, body);
-      switch (r.status) {
-        case AutoSendStatus.sent:
-          _log.info('WhatsApp message sent from phone (auto-send confirmed)');
-          return const WhatsAppSendOutcome(state: WhatsAppDeliveryState.sentFromPhone);
-        case AutoSendStatus.unconfirmed:
-          return WhatsAppSendOutcome(
-            state: WhatsAppDeliveryState.failed,
-            reason: r.reason ?? 'Send was tapped but WhatsApp did not confirm. Check the chat before retrying.',
-            retriable: false,
-          );
-        case AutoSendStatus.locked:
-        case AutoSendStatus.disabled:
-        case AutoSendStatus.busy:
-        case AutoSendStatus.failed:
-          return WhatsAppSendOutcome(
-            state: WhatsAppDeliveryState.failed,
-            reason: r.reason ?? 'Auto-send failed',
-          );
-      }
+      return const WhatsAppSendOutcome(
+        state: WhatsAppDeliveryState.notSupported,
+        reason: 'Personal WhatsApp can\'t send automatically. Switch this block to "Prepare message" '
+            '(you tap Send) or use a WhatsApp Business API connection.',
+      );
     }
 
     final Uri? uri = conversationUri(phoneNumberDigits: phoneNumberDigits, text: body);

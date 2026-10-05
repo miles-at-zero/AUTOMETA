@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/json_utils.dart';
+import 'execution_mode.dart';
 import 'step.dart';
 import 'trigger.dart';
 
@@ -25,10 +26,12 @@ class Workflow {
     this.createdAt,
     this.updatedAt,
     this.schemaVersion = currentSchemaVersion,
+    this.executionMode = ExecutionMode.onDevice,
+    this.cloudId,
   });
 
   /// Bumped whenever the JSON shape changes so stored definitions can migrate.
-  static const int currentSchemaVersion = 1;
+  static const int currentSchemaVersion = 2;
 
   final String id;
   final String name;
@@ -52,6 +55,20 @@ class Workflow {
   final DateTime? updatedAt;
   final int schemaVersion;
 
+  /// Where this automation executes. Definitions saved before execution modes
+  /// existed have no field and stay [ExecutionMode.onDevice] (they always ran
+  /// on the phone), so nothing changes for existing users.
+  final ExecutionMode executionMode;
+
+  /// Id of the mirrored automation on the Autometa backend, once synced.
+  final String? cloudId;
+
+  bool get isCloud => executionMode == ExecutionMode.cloud;
+
+  /// True when the phone's scheduler/engine is responsible for running it.
+  /// Cloud automations are never armed locally: the backend owns them.
+  bool get runsLocally => enabled && executionMode == ExecutionMode.onDevice;
+
   bool get isScheduled => trigger.isSchedulable;
 
   Workflow copyWith({
@@ -66,6 +83,9 @@ class Workflow {
     String? templateId,
     DateTime? createdAt,
     DateTime? updatedAt,
+    ExecutionMode? executionMode,
+    String? cloudId,
+    bool clearCloudId = false,
   }) =>
       Workflow(
         id: id,
@@ -81,6 +101,8 @@ class Workflow {
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? DateTime.now(),
         schemaVersion: schemaVersion,
+        executionMode: executionMode ?? this.executionMode,
+        cloudId: clearCloudId ? null : (cloudId ?? this.cloudId),
       );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -89,6 +111,8 @@ class Workflow {
         'name': name,
         if (description.isNotEmpty) 'description': description,
         'enabled': enabled,
+        'execution_mode': executionMode.wire,
+        if (cloudId != null) 'cloud_id': cloudId,
         'time_zone': timeZone,
         'max_retries': maxRetries,
         if (templateId != null) 'template_id': templateId,
@@ -116,6 +140,8 @@ class Workflow {
       createdAt: asDateTime(map['created_at']),
       updatedAt: asDateTime(map['updated_at']),
       schemaVersion: asInt(map['schema_version'], fallback: currentSchemaVersion),
+      executionMode: ExecutionMode.fromWire(map['execution_mode']),
+      cloudId: asStringOrNull(map['cloud_id']),
     );
   }
 
@@ -125,8 +151,9 @@ class Workflow {
       other.id == id &&
       other.name == name &&
       other.enabled == enabled &&
+      other.executionMode == executionMode &&
       other.updatedAt == updatedAt;
 
   @override
-  int get hashCode => Object.hash(id, name, enabled, updatedAt);
+  int get hashCode => Object.hash(id, name, enabled, executionMode, updatedAt);
 }

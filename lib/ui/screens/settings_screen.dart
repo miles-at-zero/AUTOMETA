@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../app_services.dart';
+import '../../cloud/cloud_session.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/design_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/logger.dart';
+import '../../domain/models/execution_mode.dart';
 import '../../services/notifications/notification_service.dart';
 import '../../services/scheduler/scheduler_service.dart';
 import '../../services/settings/settings_service.dart';
@@ -14,6 +16,7 @@ import '../app.dart';
 import '../widgets/autometa_widgets.dart';
 import 'ai_settings_screen.dart';
 import 'business/business_shell.dart';
+import 'cloud_account_screen.dart';
 import 'reliability_screen.dart';
 import 'connections_screen.dart';
 import 'contacts_screen.dart';
@@ -49,6 +52,41 @@ class SettingsScreen extends StatelessWidget {
                   value: settings.isPaused,
                   onChanged: (bool v) => state.setPaused(v),
                 ),
+              ),
+              const SizedBox(height: AutometaSpacing.xl),
+              const SectionLabel('Automation defaults'),
+              Panel(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                  RadioListTile<ExecutionMode>(
+                    value: ExecutionMode.cloud,
+                    groupValue: settings.defaultExecution,
+                    onChanged: (ExecutionMode? m) => settings.setDefaultExecution(m!),
+                    title: const Text('☁️ Cloud · Recommended'),
+                    subtitle: const Text(ExecutionCopy.cloudTagline),
+                  ),
+                  RadioListTile<ExecutionMode>(
+                    value: ExecutionMode.onDevice,
+                    groupValue: settings.defaultExecution,
+                    onChanged: (ExecutionMode? m) => settings.setDefaultExecution(m!),
+                    title: const Text('📱 On this device'),
+                    subtitle: const Text(ExecutionCopy.deviceTagline),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Text('Default execution for new automations. Cloud is recommended for reliable background automation. '
+                        'Existing automations keep the mode you chose for them.', style: Theme.of(context).textTheme.bodySmall),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.cloud_outlined, color: AutometaColors.accent),
+                    title: const Text('Autometa Cloud account'),
+                    subtitle: Text(context.watch<CloudSession>().signedIn
+                        ? 'Signed in as ${context.watch<CloudSession>().email}'
+                        : 'Not signed in. Needed to run automations in Cloud.'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => push(const CloudAccountScreen()),
+                  ),
+                ]),
               ),
               const SizedBox(height: AutometaSpacing.xl),
               const SectionLabel('Mode'),

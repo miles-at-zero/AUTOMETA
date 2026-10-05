@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../cloud/cloud_session.dart';
 import '../../core/theme/design_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/engine/engine_ports.dart';
@@ -10,6 +11,8 @@ import '../../domain/models/workflow.dart';
 import '../../state/app_state.dart';
 import '../app.dart';
 import '../widgets/autometa_widgets.dart';
+import '../widgets/execution_widgets.dart';
+import 'cloud_account_screen.dart';
 import 'builder_screen.dart';
 import 'dry_run_sheet.dart';
 import 'home_screen.dart';
@@ -69,8 +72,16 @@ class WorkflowCard extends StatelessWidget {
         final DryRunReport report = await state.dryRun(workflow);
         if (context.mounted) await showDryRunSheet(context, report);
       case 'run':
-        final ExecutionRecord? r = await state.runNow(workflow.id);
-        if (context.mounted) showToast(context, r == null ? 'Could not run' : honestStatusLabel(r));
+        try {
+          final ExecutionRecord? r = await state.runNow(workflow.id);
+          if (context.mounted) {
+            showToast(context, workflow.isCloud ? 'Started in Cloud. See the result in its history.' : (r == null ? 'Could not run' : honestStatusLabel(r)));
+          }
+        } on CloudException catch (e) {
+          if (context.mounted) showToast(context, e.message, color: AutometaColors.danger.withValues(alpha: 0.3));
+        }
+      case 'open':
+        await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => WorkflowHistoryScreen(workflow: workflow)));
       case 'duplicate':
         await state.duplicate(workflow);
         if (context.mounted) showToast(context, 'Duplicated (disabled)');
@@ -83,21 +94,37 @@ class WorkflowCard extends StatelessWidget {
     }
   }
 
+  Future<void> _toggle(BuildContext context, bool v) async {
+    try {
+      await context.read<AppState>().setEnabled(workflow.id, v);
+    } on CloudException catch (e) {
+      if (!context.mounted) return;
+      if (e.needsAccount) {
+        final bool go = await confirmDialog(context, title: 'Cloud needs an account', message: e.message, confirmLabel: 'Sign in');
+        if (go && context.mounted) await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CloudAccountScreen()));
+      } else {
+        showToast(context, e.issues.isEmpty ? e.message : '${e.message} ${e.issues.first}', color: AutometaColors.danger.withValues(alpha: 0.3));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final AppState state = context.read<AppState>();
     final bool on = workflow.enabled;
     return Panel(
+      onTap: () => _menu(context, 'open'),
       glow: on ? AutometaColors.accent : null,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
         Row(children: <Widget>[
           Expanded(child: Text(workflow.name, style: Theme.of(context).textTheme.titleMedium)),
-          Switch(value: on, onChanged: (bool v) => state.setEnabled(workflow.id, v)),
+          Switch(value: on, onChanged: (bool v) => _toggle(context, v)),
         ]),
         Row(children: <Widget>[
           StatusDot(on ? AutometaColors.success : AutometaColors.neutral),
           const SizedBox(width: 6),
           Text(on ? 'Active' : 'Inactive', style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(width: 10),
+          Flexible(child: AutometaExecutionBadge(mode: workflow.executionMode, compact: true)),
         ]),
         const SizedBox(height: AutometaSpacing.md),
         Text(workflow.trigger.describe(), style: Theme.of(context).textTheme.bodyLarge),
@@ -119,6 +146,7 @@ class WorkflowCard extends StatelessWidget {
             itemBuilder: (_) => const <PopupMenuEntry<String>>[
               PopupMenuItem<String>(value: 'run', child: Text('Run now')),
               PopupMenuItem<String>(value: 'duplicate', child: Text('Duplicate')),
+              PopupMenuItem<String>(value: 'open', child: Text('Details & execution')),
               PopupMenuItem<String>(value: 'history', child: Text('View history')),
               PopupMenuItem<String>(value: 'delete', child: Text('Delete')),
             ],

@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../cloud/cloud_session.dart';
+import '../domain/capabilities/execution_capabilities.dart';
+import '../domain/models/execution_mode.dart';
+
 import '../app_services.dart';
 import '../core/utils/logger.dart';
 import '../data/repositories/recipient.dart';
@@ -37,6 +41,16 @@ class ScheduledSlot {
 /// The single place the UI reads automation data from. It owns the subscription
 /// to the engine's event stream, so every screen updates when a background run
 /// finishes — including one started by AlarmManager while the app was closed.
+/// Outcome of "Move to Cloud" / "Move to this device".
+class MoveResult {
+  const MoveResult({required this.ok, required this.message, this.issues = const <CapabilityIssue>[], this.needsAccount = false});
+
+  final bool ok;
+  final String message;
+  final List<CapabilityIssue> issues;
+  final bool needsAccount;
+}
+
 class AppState extends ChangeNotifier {
   AppState({required this.services}) {
     _subscription = services.engine.events.listen(_onEngineEvent, onError: _onError);
@@ -153,14 +167,41 @@ class AppState extends ChangeNotifier {
   // Actions
   // ---------------------------------------------------------------------------
 
+  /// Set once the Cloud session exists (see main.dart).
+  CloudSession? cloud;
+
+  /// Saves locally, and for Cloud automations mirrors the change to the
+  /// backend (which owns their scheduling). An enabled Cloud automation is
+  /// only saved once the backend accepted it, so the phone never shows
+  /// "Active" for something that isn't running anywhere. Throws
+  /// [CloudException] with the blocking items.
   Future<Workflow> save(Workflow workflow) async {
-    final Workflow saved = await services.workflows.save(workflow);
-    await services.scheduler.armWorkflow(saved);
+    Workflow toSave = workflow;
+    if (workflow.isCloud) {
+      final CloudSession? c = cloud;
+      if (c == null || !c.signedIn) {
+        if (workflow.enabled) {
+          throw CloudException('Sign in to Autometa Cloud to activate Cloud automations. Your draft can be saved as inactive.', needsAccount: true);
+        }
+      } else if (workflow.enabled || workflow.cloudId != null) {
+        toSave = workflow.copyWith(cloudId: await c.sync(workflow));
+      }
+    }
+    final Workflow saved = await services.workflows.save(toSave);
+    await services.scheduler.armWorkflow(saved); // Disarms Cloud ones.
     await refresh();
     return saved;
   }
 
   Future<void> delete(String workflowId) async {
+    final Workflow? w = await services.workflows.byId(workflowId);
+    if (w?.cloudId != null && cloud?.signedIn == true) {
+      try {
+        await cloud!.remove(w!.cloudId!);
+      } on CloudException catch (e) {
+        if (e.offline) rethrow; // Don't orphan a running Cloud automation.
+      }
+    }
     await services.scheduler.disarmWorkflow(workflowId);
     await services.approvals.deleteForWorkflow(workflowId);
     await services.workflows.delete(workflowId);
@@ -170,6 +211,10 @@ class AppState extends ChangeNotifier {
   Future<void> setEnabled(String workflowId, bool enabled) async {
     final Workflow? workflow = await services.workflows.byId(workflowId);
     if (workflow == null) return;
+    if (workflow.isCloud) {
+      await save(workflow.copyWith(enabled: enabled));
+      return;
+    }
     final Workflow updated = workflow.copyWith(enabled: enabled);
     await services.workflows.save(updated);
     if (enabled) {
@@ -178,6 +223,50 @@ class AppState extends ChangeNotifier {
       await services.scheduler.disarmWorkflow(workflowId);
     }
     await refresh();
+  }
+
+  /// Steps 1-12 of the migration spec: validate every block for Cloud, then
+  /// create the Cloud copy with the same name/trigger/conditions/actions,
+  /// switch the mode, and stop the phone's alarms. Local history stays on the
+  /// same automation. Nothing changes when any step can't move.
+  Future<MoveResult> moveToCloud(Workflow w) async {
+    final List<CapabilityIssue> blocking = ExecutionCapabilities.check(w, ExecutionMode.cloud);
+    if (blocking.isNotEmpty) {
+      return MoveResult(ok: false, message: 'This automation needs attention before it can move to Cloud.', issues: blocking);
+    }
+    final CloudSession? c = cloud;
+    if (c == null || !c.signedIn) {
+      return const MoveResult(ok: false, needsAccount: true, message: 'Sign in to Autometa Cloud first. It\'s what keeps automations running when your phone is off.');
+    }
+    try {
+      final Workflow moved = w.copyWith(executionMode: ExecutionMode.cloud);
+      final String id = await c.sync(moved);
+      await services.workflows.save(moved.copyWith(cloudId: id));
+      await services.scheduler.disarmWorkflow(w.id);
+      await refresh();
+      return MoveResult(ok: true, message: '"${w.name}" now runs in Cloud${w.enabled ? ' and keeps running when Autometa is closed' : ''}.');
+    } on CloudException catch (e) {
+      return MoveResult(ok: false, message: e.message, issues: e.issues, needsAccount: e.needsAccount);
+    }
+  }
+
+  /// Only offered when every block can run on the phone. The Cloud copy is
+  /// paused (not deleted) so its history stays available.
+  Future<MoveResult> moveToDevice(Workflow w) async {
+    final List<CapabilityIssue> blocking = ExecutionCapabilities.check(w, ExecutionMode.onDevice);
+    if (blocking.isNotEmpty) {
+      return MoveResult(ok: false, message: 'This automation can\'t run on this device.', issues: blocking);
+    }
+    try {
+      if (w.cloudId != null && cloud?.signedIn == true) await cloud!.pause(w.cloudId!);
+    } on CloudException catch (e) {
+      return MoveResult(ok: false, message: e.message);
+    }
+    final Workflow local = w.copyWith(executionMode: ExecutionMode.onDevice);
+    await services.workflows.save(local);
+    await services.scheduler.armWorkflow(local);
+    await refresh();
+    return MoveResult(ok: true, message: '"${w.name}" now runs on this device. ${ExecutionCopy.recommendation}');
   }
 
   Future<Workflow> duplicate(Workflow workflow, {String Function()? idGenerator}) async {
@@ -195,7 +284,16 @@ class AppState extends ChangeNotifier {
     return save(renamed);
   }
 
+  /// Runs on the device for On-device automations. Cloud ones run on the
+  /// backend through [CloudSession.run] (see the automation screen).
   Future<ExecutionRecord?> runNow(String workflowId) async {
+    final Workflow? w = _workflowById(workflowId);
+    if (w != null && w.isCloud) {
+      final CloudSession? c = cloud;
+      if (c == null || w.cloudId == null) throw CloudException('Sign in to Autometa Cloud and save this automation first.', needsAccount: c?.signedIn != true);
+      await c.run(w.cloudId!);
+      return null;
+    }
     final ExecutionRecord? record = await services.execution.runNow(workflowId);
     await refresh();
     return record;
@@ -237,8 +335,24 @@ class AppState extends ChangeNotifier {
       timeZone: timeZone,
       recipient: recipient,
     );
-    final Workflow enabled = enable ? workflow.copyWith(enabled: true) : workflow;
-    return save(enabled);
+    // New automations get the user's default (Cloud unless changed) when every
+    // block supports it; device-only templates (e.g. "Prepare WhatsApp") stay local.
+    ExecutionMode mode = ExecutionCapabilities.bestModeFor(workflow, services.settings.defaultExecution);
+    if (mode.isCloud && enable && cloud?.signedIn != true && ExecutionCapabilities.check(workflow, ExecutionMode.onDevice).isEmpty) {
+      mode = ExecutionMode.onDevice; // Can't activate in Cloud without an account.
+    }
+    final Workflow typed = workflow.copyWith(executionMode: mode);
+    final Workflow enabled = enable ? typed.copyWith(enabled: true) : typed;
+    try {
+      return await save(enabled);
+    } on CloudException {
+      // Cloud unreachable or not ready: never lose the template. Run it on the
+      // device when every block allows, otherwise keep it as an inactive draft.
+      if (ExecutionCapabilities.check(workflow, ExecutionMode.onDevice).isEmpty) {
+        return save(enabled.copyWith(executionMode: ExecutionMode.onDevice));
+      }
+      return save(enabled.copyWith(enabled: false));
+    }
   }
 
   Future<void> installStarters({required String timeZone, String recipient = 'Dad'}) async {

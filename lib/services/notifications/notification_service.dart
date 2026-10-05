@@ -173,7 +173,9 @@ class NotificationService {
       case ExecutionStatus.success:
         if (!preferences.onCompleted) return;
         await show(
-          title: record.workflowName,
+          // Notifications from this service are always local runs (Cloud
+          // results live in the Cloud inbox), so mark where it ran.
+          title: '📱 ${record.workflowName} completed',
           body: _successBody(record),
           channel: NotificationChannels.completed,
           payload: record.workflowId,
@@ -181,7 +183,7 @@ class NotificationService {
       case ExecutionStatus.failed:
         if (!preferences.onFailed) return;
         await show(
-          title: '${record.workflowName} failed',
+          title: '📱 ${record.workflowName} failed',
           body: record.failureReason ?? 'The automation could not complete',
           channel: NotificationChannels.failed,
           payload: record.id,
@@ -189,7 +191,7 @@ class NotificationService {
       case ExecutionStatus.waitingApproval:
         if (!preferences.onApproval) return;
         await show(
-          title: '${record.workflowName}: message ready',
+          title: '📱 ${record.workflowName}: message ready',
           body: 'Tap to open WhatsApp & send. Nothing goes out until you tap Send.',
           channel: NotificationChannels.approval,
           payload: 'approval:${record.id}',

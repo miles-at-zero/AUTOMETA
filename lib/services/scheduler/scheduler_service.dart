@@ -126,7 +126,7 @@ class SchedulerService {
     int disarmed = 0;
 
     for (final Workflow workflow in all) {
-      if (!workflow.enabled || !workflow.isScheduled) {
+      if (!workflow.runsLocally || !workflow.isScheduled) {
         await disarmWorkflow(workflow.id, persist: true);
         disarmed++;
         results.add(ArmResult(workflowId: workflow.id, name: workflow.name));
@@ -162,7 +162,8 @@ class SchedulerService {
     final bool available = checkAvailable ?? await platform.isAvailable;
     final int alarmId = alarmIdFor(workflow.id);
 
-    if (!workflow.enabled) {
+    // Cloud automations are scheduled by the backend, never by this phone.
+    if (!workflow.runsLocally) {
       await platform.cancel(alarmId);
       await workflows.setNextRun(workflow.id, null);
       return ArmResult(workflowId: workflow.id, name: workflow.name);
