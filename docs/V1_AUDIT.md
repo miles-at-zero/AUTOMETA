@@ -56,3 +56,19 @@ Flutter (CI): capabilities, mapper (AND/OR, Gmail), legacy migration, personal W
 2. Google OAuth credentials, plus verification before a public launch.
 3. Firebase project + `google-services.json` for push while the app is closed.
 4. Device testing on a real phone (docs/DEVICE_TEST_PLAN.md) hasn't been done in this environment.
+
+## Blocker-closure & deployment-prep pass (2026-10-05)
+
+| Item | Status | Evidence |
+|---|---|---|
+| A. Consumer WhatsApp auto-send remnants | CODE COMPLETE | The auto-send copy, comments, the `autoSend` branch and the orphan `sentFromPhone` comment are removed. A personal-account `send` block now **fails visibly** (`whatsapp.send_unavailable`); the old silent downgrade to prepare is gone. Test: `database_test.dart`. `git grep -i "auto-send\|autosend\|sentFromPhone"` → only docs that explain it's unsupported. Row 24 is now COMPLETE. |
+| B. Canonical `{{weekday}}` | CODE COMPLETE | App and server both resolve `{{weekday}}` to the day name. `{{day}}` is an explicit alias (`VariableResolver.aliases`, `VARIABLE_ALIASES`). Tests cover builder → saved → mapper → Cloud body (`execution_mode_test.dart`) and validator → engine → result (`v1.test.js`). |
+| C. FCM client | Push implementation: CODE COMPLETE. Firebase config: EXTERNAL CONFIG REQUIRED. Real device: REAL DEVICE TEST REQUIRED | `lib/cloud/push_client.dart`, `firebase_push_transport.dart`, `test/push_test.dart`, docs/NOTIFICATIONS.md |
+| D. Terminated-app navigation | CODE COMPLETE (mock-tested) / REAL DEVICE TEST REQUIRED | `PendingNavigation` + `getInitialMessage` + `getNotificationAppLaunchDetails` |
+| `/health` | CODE COMPLETE | Real scheduler state (`not_started`/`running`/`stale`). A test proves no secret values leak. |
+| Cloud URL | CODE COMPLETE | No default server and no localhost fallback. Release builds are https-only (`cloud_url_test.dart`). |
+| Gmail unconfigured | CODE COMPLETE | "Unavailable: server configuration required"; Connect is disabled. |
+| Legal & privacy centre | CODE COMPLETE; **DRAFTS PREPARED FOR LEGAL REVIEW** | docs/LEGAL.md |
+| Export / delete account UI | CODE COMPLETE (server-tested) / REAL DEVICE TEST REQUIRED | Cloud account → Your data |
+| Integration disclosures, activation review | CODE COMPLETE | `legal_texts.dart`, `activation_review.dart` + test |
+| Deployment | DEPLOYMENT REQUIRED | server/DEPLOY.md. Docker is not built or tested. |

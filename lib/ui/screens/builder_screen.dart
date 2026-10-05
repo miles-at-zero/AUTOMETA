@@ -13,6 +13,7 @@ import '../../domain/engine/variable_resolver.dart';
 import '../../domain/models/condition.dart';
 import '../../domain/models/execution_mode.dart';
 import '../../domain/models/step.dart';
+import '../../domain/review/activation_review.dart';
 import '../../domain/models/trigger.dart';
 import '../../domain/models/workflow.dart';
 import '../../domain/validation/workflow_validator.dart';
@@ -76,12 +77,46 @@ class _BuilderScreenState extends State<BuilderScreen> {
   static bool _onlyCapabilityErrors(ValidationResult v) =>
       v.errors.every((ValidationIssue i) => (i.code ?? '').startsWith('capability.'));
 
+  /// Activation review: what will really happen, confirmed before going live.
+  Future<bool> _review() async {
+    final ActivationReview r = ActivationReview.of(_wf.copyWith(name: _name.text));
+    final TextTheme t = Theme.of(context).textTheme;
+    final bool? ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (BuildContext c) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: <Widget>[
+            Text('Review before activating', style: t.titleLarge),
+            const SizedBox(height: 12),
+            LabeledValue(label: 'Runs', value: r.where),
+            LabeledValue(label: 'When', value: r.when),
+            const SizedBox(height: 8),
+            Text('What it does', style: t.titleSmall),
+            for (final String a in r.actions) Padding(padding: const EdgeInsets.only(top: 4), child: Text('• $a')),
+            const SizedBox(height: 12),
+            for (final String n in r.notes)
+              Padding(padding: const EdgeInsets.only(top: 4), child: Text(n, style: t.bodySmall)),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Activate')),
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Back to editing')),
+          ]),
+        ),
+      ),
+    );
+    return ok == true;
+  }
+
   Future<void> _save({required bool enable}) async {
     final ValidationResult v = const WorkflowValidator().validate(_wf.copyWith(name: _name.text));
     if (!v.isValid && (enable || !_onlyCapabilityErrors(v))) {
       showToast(context, v.summary, color: AutometaColors.danger.withValues(alpha: 0.3));
       return;
     }
+    if (enable && !await _review()) return;
+    if (!mounted) return;
     setState(() => _saving = true);
     try {
       await context.read<AppState>().save(_wf.copyWith(name: _name.text.trim(), enabled: enable));
