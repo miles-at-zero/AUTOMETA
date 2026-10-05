@@ -7,6 +7,13 @@ const DEFAULT = {
     pro: { monthly: 5000, googlePlayProductId: 'autometa_pro_monthly' },
     business: { monthly: 15000, googlePlayProductId: 'autometa_business_monthly' },
   },
+  // Cloud automation plans (Autometa platform). Display/store data only.
+  cloud: {
+    free: { monthly: 0 },
+    plus: { monthly: 2500, googlePlayProductId: 'autometa_plus_monthly' },
+    pro: { monthly: 6000, googlePlayProductId: 'autometa_cloud_pro_monthly' },
+    business: { monthly: 15000, googlePlayProductId: 'autometa_cloud_business_monthly' },
+  },
   setupService: {
     from: 25000, to: 100000,
     description: 'We connect your WhatsApp Business number, build your menu/FAQ/order flows and train your staff.',

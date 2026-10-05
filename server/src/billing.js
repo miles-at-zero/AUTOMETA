@@ -41,7 +41,7 @@ export class GooglePlayVerifier {
   }
 
   /** @returns {{plan, status, periodEnd, graceUntil, productId}} */
-  async verify(purchaseToken) {
+  async verify(purchaseToken, mapProduct = (id) => planForProduct(id, this.env)) {
     if (!this.configured) throw Object.assign(new Error('Google Play verification is not configured on this server'), { status: 501 });
     const token = await this.accessToken();
     const res = await this.fetchImpl(`https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${this.packageName}/purchases/subscriptionsv2/tokens/${encodeURIComponent(purchaseToken)}`, {
@@ -51,7 +51,7 @@ export class GooglePlayVerifier {
     if (!res.ok) throw Object.assign(new Error(b?.error?.message || 'Purchase not found'), { status: 400 });
     const line = (b.lineItems || [])[0] || {};
     const productId = line.productId;
-    const plan = planForProduct(productId, this.env);
+    const plan = mapProduct(productId);
     if (!plan) throw Object.assign(new Error(`Unknown product ${productId}`), { status: 400 });
     const status = mapPlayState(b.subscriptionState);
     const periodEnd = line.expiryTime ? Date.parse(line.expiryTime) : null;

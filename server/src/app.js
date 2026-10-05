@@ -11,6 +11,7 @@ import { FEATURES, PLANS } from './plans.js';
 import { pricing } from './pricing.js';
 import { can, describePlans, effectiveSubscription, planOf, PlanError, requireFeature, requireWithin } from './entitlements.js';
 import { validateHours } from './hours.js';
+import { createCloud } from './cloud/api.js';
 
 class HttpError extends Error {
   constructor(status, message, extra = {}) { super(message); this.status = status; Object.assign(this, extra); }
@@ -35,6 +36,7 @@ export function createApp({ db = openDb(':memory:'), env = process.env, sender, 
   const ai = new AiService({ db, planFor, env, fetchImpl, clock });
   const engine = new FlowEngine({ db, sender: waSender, clock, planFor, ai, fetchImpl });
   const play = new GooglePlayVerifier({ env, fetchImpl });
+  const cloud = createCloud({ db, env, secret, clock, fetchImpl });
 
   const audit = (member, action, target, detail) => {
     db.prepare('INSERT INTO audit (account_id, member_id, action, target, detail, ts) VALUES (?,?,?,?,?,?)')
@@ -595,6 +597,7 @@ export function createApp({ db = openDb(':memory:'), env = process.env, sender, 
   // ---------------------------------------------------------------- server
   async function handle(req, res) {
     const url = new URL(req.url, 'http://x');
+    if (await cloud.handle(req, res, url)) return;
     const send = (status, body) => {
       if (body && body.__raw !== undefined) { res.writeHead(status, { 'content-type': 'text/plain' }); res.end(String(body.__raw)); return; }
       res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-admin-key', 'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS' });
@@ -623,5 +626,5 @@ export function createApp({ db = openDb(':memory:'), env = process.env, sender, 
     }
   }
 
-  return { db, engine, ai, handle, server: () => http.createServer(handle), planFor };
+  return { db, engine, ai, cloud, handle, server: () => http.createServer(handle), planFor };
 }
