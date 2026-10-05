@@ -291,6 +291,36 @@ void main() {
       expect(await saved(tester, s), isEmpty);
     });
 
+    testWidgets('Template needing an integration: explains why; Do this later opens the builder', (WidgetTester tester) async {
+      final AppServices s = await start(tester);
+      await tapKey(tester, 'onboarding.continue');
+      await tapKey(tester, 'onboarding.continue');
+      await tapKey(tester, 'onboarding.path.templates');
+      await tapKey(tester, 'onboarding.template.email_alert');
+      await settle(tester);
+      expect(find.text("You'll need to connect Gmail to use this automation."), findsOneWidget);
+      expect(find.text('Connect Gmail'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('onboarding.needs.later')));
+      await settle(tester);
+      await settle(tester);
+      expect(find.byType(BuilderScreen), findsOneWidget);
+      expect(await saved(tester, s), isEmpty);
+    });
+
+    testWidgets('Template needing an integration: Connect opens Connections, not a fake connected state', (WidgetTester tester) async {
+      await start(tester);
+      await tapKey(tester, 'onboarding.continue');
+      await tapKey(tester, 'onboarding.continue');
+      await tapKey(tester, 'onboarding.path.templates');
+      await tapKey(tester, 'onboarding.template.scheduled_message');
+      await settle(tester);
+      expect(find.text("You'll need to connect Telegram to use this automation."), findsOneWidget);
+      await tester.tap(find.byKey(const Key('onboarding.needs.connect')));
+      await settle(tester);
+      await settle(tester);
+      expect(find.text('CONNECTIONS'), findsOneWidget);
+    });
+
     testWidgets('Dad reminders: Personal WhatsApp creates prepare-only inactive drafts', (WidgetTester tester) async {
       final AppServices s = await start(tester);
       await tapKey(tester, 'onboarding.continue');

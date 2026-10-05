@@ -49,6 +49,57 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // The app root swaps this screen for the shell, which opens [intent].
   }
 
+  /// Integrations are connected progressively: explain the need at the moment
+  /// it arises and let the user connect now or later. Nothing is faked.
+  static const Map<String, String> _needs = <String, String>{
+    'email_alert': 'Gmail',
+    'scheduled_message': 'Telegram',
+  };
+
+  Future<void> _pickTemplate(String id) async {
+    final String? service = _needs[id];
+    if (service == null) {
+      return _finish(OnboardingOutcome.completed, OnboardingIntent.template(id));
+    }
+    final bool? connectNow = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(AutometaSpacing.lg, 0, AutometaSpacing.lg, AutometaSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('You\'ll need to connect $service to use this automation.',
+                  key: const Key('onboarding.needs.title'), style: Theme.of(ctx).textTheme.titleLarge),
+              const SizedBox(height: AutometaSpacing.sm),
+              Text('You can open the template now and connect $service before you activate it. '
+                  'Nothing runs until you review and activate.', style: Theme.of(ctx).textTheme.bodyMedium),
+              const SizedBox(height: AutometaSpacing.lg),
+              FilledButton(
+                key: const Key('onboarding.needs.connect'),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: Text('Connect $service'),
+              ),
+              const SizedBox(height: AutometaSpacing.sm),
+              TextButton(
+                key: const Key('onboarding.needs.later'),
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Do this later'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || connectNow == null) return; // dismissed: stay on the list
+    await _finish(
+      OnboardingOutcome.completed,
+      connectNow ? const OnboardingIntent.connectApp() : OnboardingIntent.template(id),
+    );
+  }
+
   Future<void> _skip() => _finish(OnboardingOutcome.skipped, const OnboardingIntent.explore());
 
   @override
@@ -65,7 +116,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ),
       _Page.templates => _TemplatePicker(
           busy: _busy,
-          onPick: (String id) => _finish(OnboardingOutcome.completed, OnboardingIntent.template(id)),
+          onPick: _pickTemplate,
           onDad: () => _go(_Page.dad),
         ),
       _Page.dad => _DadSetup(
@@ -439,8 +490,8 @@ class _TemplatePicker extends StatelessWidget {
   /// Curated V1 starting points; the full gallery is in New automation.
   static const List<(String, IconData, String?)> picks = <(String, IconData, String?)>[
     ('daily_reminder', Icons.alarm, null),
-    ('email_alert', Icons.mail_outline, 'Needs Gmail. You\'ll connect it in Cloud when you activate.'),
-    ('scheduled_message', Icons.send_outlined, 'Needs your Telegram bot. You\'ll connect it in Cloud when you activate.'),
+    ('email_alert', Icons.mail_outline, 'Needs Gmail'),
+    ('scheduled_message', Icons.send_outlined, 'Needs your Telegram bot'),
   ];
 
   @override
