@@ -31,6 +31,26 @@ verification and an annual third-party security assessment (CASA). Until then,
 only the test users you list can connect (max 100), and their refresh tokens
 expire after 7 days in Testing mode.
 
+## Google verification (before any public launch). **EXTERNAL / USER ACTION**
+Nothing below has been started. Order of work:
+1. **Stay in Testing** for internal and beta use. Only the listed test users (up to 100) can connect, Google shows them an "unverified app" warning, and their refresh tokens expire after 7 days. When that happens, Autometa pauses the automation and asks for **Reconnect**, which is the tested `connection_reauth` path.
+2. **Prerequisites for verification:**
+   * a verified domain (Search Console) that hosts the app homepage;
+   * a public privacy policy on the same domain. The in-app Privacy text is a draft *prepared for legal review*, not a final policy;
+   * terms of service;
+   * an app logo;
+   * a support email.
+3. **Scope justification:**
+   * `gmail.send` is *sensitive*.
+   * `gmail.readonly` is *restricted*.
+   * Explain why each is needed: the new-email trigger needs read access; the send-email action needs send access.
+   * Record a demo video of the OAuth flow and the feature that uses each scope.
+   * The privacy policy must include Google's Limited Use disclosure.
+4. **Restricted scope:** Google requires an annual third-party security assessment (CASA) for `gmail.readonly`. Budget time and money for it.
+
+   Alternative: ship send-only first, which drops the Gmail trigger. That is a product decision for the owner.
+5. After approval, switch the consent screen to *In production* and run the Gmail section of `docs/DEVICE_TEST_PLAN.md` again with a non-test account.
+
 ## Not in V1
 Attachments, labels/archiving, replies in a thread, push (Pub/Sub watch)
 instead of polling, and Google Calendar (**DEFERRED FROM V1**).

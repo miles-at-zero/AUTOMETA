@@ -600,7 +600,7 @@ export function createApp({ db = openDb(':memory:'), env = process.env, sender, 
     if (await cloud.handle(req, res, url)) return;
     const send = (status, body) => {
       if (body && body.__raw !== undefined) { res.writeHead(status, { 'content-type': 'text/plain' }); res.end(String(body.__raw)); return; }
-      res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-admin-key', 'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS' });
+      res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': env.CORS_ORIGIN || '*', 'access-control-allow-headers': 'authorization, content-type, x-admin-key', 'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS' });
       res.end(JSON.stringify(body));
     };
     if (req.method === 'OPTIONS') return send(204, null);

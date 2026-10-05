@@ -9,7 +9,7 @@ class AppInfo {
 
   static const String name = 'AUTOMETA';
   static const String tagline = 'Trigger → Intelligence → Action';
-  static const String version = '0.1.0';
+  static const String version = '0.9.0'; // Keep in sync with pubspec.yaml (0.9.0+9: V1 beta candidate).
 }
 
 /// Limits that keep the engine from hurting itself or the user's device.
