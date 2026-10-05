@@ -11,6 +11,13 @@ void main() {
   group('variables', () {
     final VariableResolver r = VariableResolver(const <String, String>{'name': 'Dad', 'day': 'Sunday'});
     test('expands tokens', () => expect(r.resolve('Good morning {{name}}. Have a great {{day}}!'), 'Good morning Dad. Have a great Sunday!'));
+    test('{{day}} is an explicit alias of canonical {{weekday}}', () {
+      expect(VariableResolver.aliases, <String, String>{'day': 'weekday'});
+      expect(VariableResolver.canonicalize('Happy {{day}} / {{ day }} / {{day_short}} / {{weekday}}'),
+          'Happy {{weekday}} / {{weekday}} / {{day_short}} / {{weekday}}');
+      expect(VariableResolver.builtInNames, contains('weekday'));
+      expect(VariableResolver.builtInNames, isNot(contains('day')));
+    });
     test('fallback syntax', () => expect(r.resolve('Hi {{nick|friend}}'), 'Hi friend'));
     test('unknown tokens become empty and are reported', () {
       final VariableResolver v = VariableResolver(const <String, String>{});
@@ -20,6 +27,8 @@ void main() {
     test('built-ins include date/time/day', () {
       final Map<String, String> b = VariableResolver.builtIns(DateTime(2026, 10, 4, 18), defaultName: 'Dad');
       expect(b['day'], 'Sunday');
+      expect(b['weekday'], 'Sunday', reason: 'canonical name, same as Cloud');
+      expect(b['is_weekday'], 'false');
       expect(b['time'], '18:00');
       expect(b['date'], '2026-10-04');
       expect(b['name'], 'Dad');

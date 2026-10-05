@@ -275,3 +275,23 @@ test('conditions: eq / neq / contains / AND / OR, invalid variable, unsupported 
     assert.match(await check({ rules: [1, 2, 3, 4].map((i) => r(`payload.a${i}`, 'eq', '1')) }), /need Plus/);
   } finally { s.close(); }
 });
+
+test('canonical {{weekday}} (with {{day}} compatibility alias): validator → engine → result', async () => {
+  const s = await setup(); // clock: Monday 2026-10-05, 06:50 Africa/Lagos
+  try {
+    const tc = await s.t('POST', '/v1/connections', { integration: 'telegram', fields: { token: TG } }, s.tok);
+    const mk = (field, value, text) => ({ name: 'W', trigger: { integration: 'autometa', key: 'schedule', schedule: { times: ['18:00'] } },
+      steps: [{ id: 'c1', type: 'condition', rules: [{ field, op: 'eq', value }] }, { id: 's1', type: 'action', integration: 'telegram', action: 'send_message', connectionId: tc.id, config: { chatId: '42', text } }] });
+    const a = await s.t('POST', '/v1/automations', mk('weekday', 'Monday', 'Today is {{weekday}}'), s.tok);
+    assert.equal(a.status, 'ready', JSON.stringify(a.validation?.checks?.filter((c) => !c.ok)));
+    const out = async () => { const r = await s.t('POST', `/v1/automations/${a.id}/test`, {}, s.tok); return { status: r.status, text: r.steps.find((x) => x.stepId === 's1')?.output?.text }; };
+    assert.deepEqual(await out(), { status: 'success', text: 'Today is Monday' });
+    const legacy = await s.t('PUT', `/v1/automations/${a.id}`, mk('day', 'monday', 'Happy {{day}}'), s.tok);
+    assert.equal(legacy.status, 'ready', 'legacy {{day}} is accepted as an alias');
+    assert.deepEqual(await out(), { status: 'success', text: 'Happy Monday' });
+    await s.t('PUT', `/v1/automations/${a.id}`, mk('weekday', 'Sunday', 'x'), s.tok);
+    assert.equal((await s.t('POST', `/v1/automations/${a.id}/test`, {}, s.tok)).status, 'skipped');
+    const bad = await s.t('PUT', `/v1/automations/${a.id}`, mk('day.name', 'x', 'x'), s.tok);
+    assert.notEqual(bad.status, 'ready', 'only the bare alias is mapped');
+  } finally { s.close(); }
+});

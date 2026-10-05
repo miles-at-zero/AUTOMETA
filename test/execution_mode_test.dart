@@ -169,6 +169,25 @@ void main() {
     });
   });
 
+  group('canonical {{weekday}} variable', () {
+    test('builder {{weekday}} and legacy {{day}} both reach Cloud as "weekday"', () {
+      for (final String left in <String>['{{weekday}}', '{{day}}', '{{ day }}']) {
+        final Workflow w = wf(const ScheduleTrigger(), <WorkflowStep>[
+          ConditionStep(id: 'c', condition: Condition(left: left, operator: ConditionOperator.equals, right: 'Sunday'), thenSteps: const <WorkflowStep>[
+            NotificationStep(id: 'n', title: 'Summary', body: 'Happy {{day}}, it is {{weekday}}'),
+          ]),
+        ]);
+        // Saved → reloaded keeps the user's text untouched.
+        final Workflow saved = Workflow.fromJson(w.toJson());
+        final CloudMapping m = CloudMapper(phoneFor: (_) => null).map(saved);
+        expect(m.ok, isTrue, reason: m.issues.map((CapabilityIssue i) => i.reason).join());
+        final List<dynamic> steps = m.body['steps'] as List<dynamic>;
+        expect(((steps[0] as Map<String, dynamic>)['rules'] as List<dynamic>).single, containsPair('field', 'weekday'));
+        expect(((steps[1] as Map<String, dynamic>)['config'] as Map<String, dynamic>)['body'], 'Happy {{weekday}}, it is {{weekday}}');
+      }
+    });
+  });
+
   group('V1 conditions + Gmail (domain)', () {
     test('multi-rule condition round-trips; legacy single rule still parses', () {
       const ConditionStep c = ConditionStep(

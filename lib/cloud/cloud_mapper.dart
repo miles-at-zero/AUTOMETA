@@ -1,4 +1,5 @@
 import '../domain/capabilities/execution_capabilities.dart';
+import '../domain/engine/variable_resolver.dart';
 import '../domain/models/condition.dart';
 import '../domain/models/execution_mode.dart';
 import '../domain/models/step.dart';
@@ -101,8 +102,9 @@ class CloudMapper {
   }
 
   /// Custom variables are resolved locally; Cloud gets the final text.
+  /// Alias tokens such as {{day}} are rewritten to the canonical {{weekday}}.
   String _vars(Workflow w, String text) {
-    String out = text;
+    String out = VariableResolver.canonicalize(text);
     w.variables.forEach((String k, String v) => out = out.replaceAll(RegExp('\\{\\{\\s*${RegExp.escape(k)}\\s*\\}\\}'), v));
     return out;
   }
@@ -141,7 +143,7 @@ class CloudMapper {
           out.add(<String, dynamic>{...base, 'type': 'condition', 'mode': s.matchAny ? 'any' : 'all', 'rules': <Map<String, dynamic>>[
             for (final Condition c in s.conditions)
               <String, dynamic>{
-                'field': ExecutionCapabilities.cloudField.firstMatch(c.left)?.group(1) ?? '',
+                'field': ExecutionCapabilities.cloudField.firstMatch(VariableResolver.canonicalize(c.left))?.group(1) ?? '',
                 'op': ExecutionCapabilities.cloudOperators[c.operator] ?? 'eq',
                 'value': _vars(w, c.right),
               },

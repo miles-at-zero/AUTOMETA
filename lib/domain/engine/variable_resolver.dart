@@ -65,6 +65,9 @@ class VariableResolver {
       'time': DateFormat.Hm().format(local),
       'time_12': DateFormat.jm().format(local),
       'datetime': DateFormat.yMMMd().add_jm().format(local),
+      // Canonical: {{weekday}} = "Sunday" (same as Cloud). {{day}} is a
+      // compatibility alias with the same value, see [aliases].
+      'weekday': DateFormat('EEEE').format(local),
       'day': DateFormat('EEEE').format(local),
       'day_short': DateFormat('EEE').format(local),
       'day_number': '${local.weekday}',
@@ -72,7 +75,7 @@ class VariableResolver {
       'month_number': '${local.month}',
       'year': '${local.year}',
       'weekend': weekend ? 'true' : 'false',
-      'weekday': weekend ? 'false' : 'true',
+      'is_weekday': weekend ? 'false' : 'true',
       'day_type': weekend ? 'weekend' : 'weekday',
       'greeting': _greeting(local),
       'timestamp': '${local.millisecondsSinceEpoch}',
@@ -91,7 +94,19 @@ class VariableResolver {
     return 'Good night';
   }
 
+  /// Explicit compatibility names → canonical name. Older automations used
+  /// `{{day}}` for the weekday name; the canonical name, shared with Autometa
+  /// Cloud, is `{{weekday}}`. Applied when an automation is sent to Cloud.
+  static const Map<String, String> aliases = <String, String>{'day': 'weekday'};
+
+  /// Rewrites alias tokens (`{{day}}`) to canonical ones (`{{weekday}}`).
+  static String canonicalize(String text) => text.replaceAllMapped(
+        RegExp(r'\{\{\s*([\w.]+)\s*\}\}'),
+        (Match m) => aliases.containsKey(m.group(1)) ? '{{${aliases[m.group(1)]}}}' : m.group(0)!,
+      );
+
   /// Every variable name the resolver knows, for the variable picker UI.
+  /// (`day` still resolves but is not offered: use `weekday`.)
   static const List<String> builtInNames = <String>[
     'name',
     'date',
@@ -100,14 +115,14 @@ class VariableResolver {
     'time',
     'time_12',
     'datetime',
-    'day',
+    'weekday',
     'day_short',
     'day_number',
     'month',
     'month_number',
     'year',
     'weekend',
-    'weekday',
+    'is_weekday',
     'day_type',
     'greeting',
     'timestamp',

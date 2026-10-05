@@ -131,6 +131,7 @@ export class CloudEngine {
       automation: a.name, date: d.toLocaleDateString('en-GB', { timeZone: a.timezone }), time: d.toLocaleTimeString('en-GB', { timeZone: a.timezone, hour: '2-digit', minute: '2-digit' }),
       weekday: d.toLocaleDateString('en-GB', { timeZone: a.timezone, weekday: 'long' }), execution: { id, number: seq, test: isTest },
     };
+    vars.day = vars.weekday; // compatibility alias (VARIABLE_ALIASES in validate.js)
     let skipReason = null;
     if (!isTest) {
       const used = this.usage(a.workspace_id, 'executions');

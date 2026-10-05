@@ -603,7 +603,7 @@ WorkflowStep newStep(StepKind kind, String recipient) {
     StepKind.openUrl => OpenUrlStep(id: id, url: 'https://'),
     StepKind.condition => ConditionStep(
         id: id,
-        condition: const Condition(left: '{{day}}', operator: ConditionOperator.equals, right: 'Sunday'),
+        condition: const Condition(left: '{{weekday}}', operator: ConditionOperator.equals, right: 'Sunday'),
       ),
     StepKind.delay => DelayStep(id: id, seconds: 1800),
     StepKind.setVariable => SetVariableStep(id: id, name: 'message', value: ''),
@@ -833,7 +833,7 @@ class _StepEditorState extends State<_StepEditor> {
             ),
           ),
           Text(
-              'Use a variable on the left, e.g. {{day}} or, in Cloud, {{email.subject}} / {{payload.status}}. '
+              'Use a variable on the left, e.g. {{weekday}} (Sunday, Monday…) or, in Cloud, {{email.subject}} / {{payload.status}}. '
               'Add blocks to the IF and ELSE branches from the builder.',
               style: Theme.of(context).textTheme.bodySmall),
         ];

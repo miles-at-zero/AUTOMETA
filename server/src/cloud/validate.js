@@ -3,13 +3,17 @@ import { requireFields } from './integrations/base.js';
 import { cloudPlan } from './plans.js';
 import { parseCron, toCrons, validTimezone } from './schedule.js';
 
+// Canonical weekday variable is {{weekday}} ("Sunday"). {{day}} is accepted as
+// an explicit compatibility alias for automations built before the rename.
+export const VARIABLE_ALIASES = { day: 'weekday' };
 const BASE_ROOTS = ['trigger', 'payload', 'headers', 'date', 'time', 'weekday', 'execution'];
 const MAX_FREE_RULES = 3;
 /** Checks a variable path like "email.subject" or "steps.s1.messageId". Returns an error string or null. */
 export function variableProblem(path, { roots, priorStepIds }) {
   const p = String(path || '').replace(/^\{\{\s*|\s*\}\}$/g, '').trim();
   if (!/^[\w-]+(\.[\w-]+)*$/.test(p)) return `"${path}" isn't a valid variable`;
-  const [root, second] = p.split('.');
+  const [root0, second] = p.split('.');
+  const root = VARIABLE_ALIASES[root0] && !second ? VARIABLE_ALIASES[root0] : root0;
   if (root === 'steps') return second && priorStepIds.includes(second) ? null : `"${p}" refers to a step that doesn't run before this one`;
   return roots.includes(root) ? null : `Unknown variable "${p}" (available: ${roots.join(', ')}, steps.<id>)`;
 }

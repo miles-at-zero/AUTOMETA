@@ -83,7 +83,7 @@ class Condition {
     );
   }
 
-  /// One-line description used in the builder, e.g. `{{day}} equals Sunday`.
+  /// One-line description used in the builder, e.g. `{{weekday}} equals Sunday`.
   String describe() {
     if (operator.isUnary) return '$left ${operator.label}';
     return '$left ${operator.label} $right';

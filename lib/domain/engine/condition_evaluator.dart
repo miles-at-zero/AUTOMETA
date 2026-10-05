@@ -105,7 +105,7 @@ class ConditionEvaluator {
   }
 
   /// Accepts ISO-8601, `yyyy-MM-dd`, `HH:mm`, weekday names and bare numbers of
-  /// the day so `{{day}} after 2026-01-01` style rules behave sensibly.
+  /// the day so `{{weekday}} after 2026-01-01` style rules behave sensibly.
   DateTime? _asDate(String value) {
     if (value.isEmpty) return null;
     final DateTime? parsed = DateTime.tryParse(value);

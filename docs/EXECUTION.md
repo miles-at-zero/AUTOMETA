@@ -62,3 +62,12 @@ The builder hides unavailable blocks and triggers and lists them separately, tog
 * After a reboot, alarms are re-armed when the boot broadcast arrives or the app is next opened. Missed runs are recorded as skipped, never as successful.
 * A force-stop from Settings cancels every alarm until the app is opened again (an Android rule).
 * Personal WhatsApp steps need you: the phone must be unlocked and you tap Send.
+
+## Variables shared by Cloud and On-device
+
+`{{weekday}}` is the canonical weekday variable and resolves to the day name ("Sunday") in both modes.
+`{{day}}` is an explicit compatibility alias with the same value: the app rewrites it to `{{weekday}}` when it sends an automation to Cloud, and the server accepts the bare `day` as an alias (`VARIABLE_ALIASES` in `server/src/cloud/validate.js`).
+The builder only offers `{{weekday}}`.
+
+Breaking change for on-device automations: `{{weekday}}` used to mean "is it a weekday" (`true`/`false`). That flag is now `{{is_weekday}}`; `{{weekend}}` and `{{day_type}}` are unchanged.
+Variables that exist only on the device (for example `{{greeting}}`, `{{day_short}}`, `{{name}}`) are rejected by the Cloud validator with an "Unknown variable" check rather than silently resolving to empty text.
