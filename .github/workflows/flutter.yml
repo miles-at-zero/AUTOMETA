@@ -1,0 +1,96 @@
+name: flutter
+on:
+  push:
+  pull_request:
+permissions:
+  contents: write
+# One run per branch at a time: newer pushes cancel older ones, so concurrent
+# runs can't race on the shared latest-build release.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  server-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+        working-directory: server
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - run: flutter pub get
+      - name: analyze
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.txt 2>&1; rc=$?
+          grep -E "^ *error" analyze.txt | head -45 | while IFS= read -r l; do echo "::error::A $l"; done
+          exit $rc
+      - name: test
+        if: always()
+        run: |
+          flutter test --reporter expanded > test.txt 2>&1; rc=$?
+          grep -E "\[E\]|Error:|error:|Expected:|Actual:" test.txt | head -40 | while IFS= read -r l; do echo "::warning::T $l"; done
+          exit $rc
+      - uses: actions/setup-java@v4
+        if: always()
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: firebase config (optional)
+        if: always()
+        env:
+          GSJ: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GSJ" ]; then printf '%s' "$GSJ" > android/app/google-services.json; echo "Firebase config present: push enabled in this build"
+          else echo "::notice::No GOOGLE_SERVICES_JSON secret: APK is built WITHOUT Firebase push (EXTERNAL CONFIG REQUIRED)"; fi
+      - name: production signing (optional)
+        if: always()
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            { echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore"; echo "ANDROID_KEYSTORE_PASSWORD=$KS_PASS"; echo "ANDROID_KEY_ALIAS=$KS_ALIAS"; echo "ANDROID_KEY_PASSWORD=$KEY_PASS"; } >> "$GITHUB_ENV"
+            echo "Release APK will be signed with the PRODUCTION key from secrets"
+          else echo "::notice::No ANDROID_KEYSTORE_BASE64 secret: release APK is signed with the public DEV key (not for Play Store)"; fi
+      - name: build apk
+        id: apk
+        if: always()
+        env:
+          # Optional repository VARIABLE (not a secret): Settings → Secrets and
+          # variables → Actions → Variables → AUTOMETA_CLOUD_URL. Unset = users
+          # enter the server address in the app (no built-in fallback).
+          CLOUD_URL: ${{ vars.AUTOMETA_CLOUD_URL }}
+        run: |
+          if [ -n "$CLOUD_URL" ]; then echo "Building with AUTOMETA_CLOUD_URL=$CLOUD_URL"; else echo "::notice::No AUTOMETA_CLOUD_URL variable: APK has no default Cloud server"; fi
+          flutter build apk --release --flavor standard --dart-define=AUTOMETA_CLOUD_URL="$CLOUD_URL" > build.txt 2>&1; rc=$?
+          grep -iE "error|FAILURE|What went wrong" -A2 build.txt | head -40 | while IFS= read -r l; do echo "::error::B $l"; done
+          exit $rc
+      - name: report logs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '```'; grep -vE "^ *info " analyze.txt | head -150; echo '--- TEST'; grep -E "\[E\]|rror|Expected|Actual|Which|\.dart:[0-9]+" test.txt | head -120; echo '--- BUILD'; grep -iE "error|wrong|FAIL" -A3 build.txt | head -80; echo '```'; } > report.md || true
+          gh api repos/${{ github.repository }}/commits/$GITHUB_SHA/comments -F body=@report.md || true
+      - name: publish release
+        if: steps.apk.outcome == 'success' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-standard-release.apk autometa.apk
+          git archive --format=zip --prefix=AUTOMETA/ -o autometa-source.zip HEAD
+          gh release delete latest-build -y --cleanup-tag || true
+          gh release create latest-build autometa.apk autometa-source.zip --prerelease --target "$GITHUB_SHA" \
+            --title "AUTOMETA latest build" --notes "autometa.apk = Autometa for Android (Cloud + On-device execution). autometa-source.zip = source. Built from $GITHUB_SHA."

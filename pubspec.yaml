@@ -1,0 +1,68 @@
+name: autometa
+description: >-
+  AUTOMETA - a personal automation command center. Trigger -> Intelligence ->
+  Action. Mobile-first Flutter automation engine for Android.
+publish_to: "none"
+version: 0.9.0+9
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+  flutter: ">=3.29.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- State management -----------------------------------------------------
+  provider: ^6.1.2
+
+  # --- Persistence ---------------------------------------------------------
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  shared_preferences: ^2.3.2
+
+  # Secrets (API keys / access tokens) are stored here, never in SQLite.
+  flutter_secure_storage: ^9.2.2
+
+  # --- Scheduling / background execution ----------------------------------
+  # AlarmManager is the only Android primitive that can fire at an exact wall
+  # clock time after the app process has been killed.
+  android_alarm_manager_plus: ^4.0.5
+
+  # --- Notifications ------------------------------------------------------
+  flutter_local_notifications: ^17.2.3
+  timezone: ^0.9.4
+  flutter_timezone: ^3.0.1
+
+  # Cloud alert pushes (FCM). Needs android/app/google-services.json at build
+  # time (never committed); without it push reports "not configured".
+  firebase_core: ^4.14.0
+  firebase_messaging: ^16.7.0
+
+  # --- Network ------------------------------------------------------------
+  http: ^1.2.2
+
+  # Google Play subscriptions for Business plans (verified server-side).
+  in_app_purchase: ^3.2.0
+
+  # --- Utilities ----------------------------------------------------------
+  intl: ^0.19.0
+  uuid: ^4.5.0
+  url_launcher: ^6.3.1
+  collection: ^1.18.0
+  meta: ^1.15.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  # Lets the SQLite repositories be exercised on the host VM by the test suite.
+  sqflite_common_ffi: ^2.3.3
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/workflows/
+    - assets/branding/

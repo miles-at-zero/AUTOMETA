@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="autometa_background">#07090C</color>
+    <color name="autometa_accent">#22E3D3</color>
+    <color name="autometa_secondary">#8B7CFF</color>
+    <color name="ic_launcher_background">#07090C</color>
+</resources>
