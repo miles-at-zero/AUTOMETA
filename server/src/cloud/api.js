@@ -20,6 +20,7 @@ class HttpError extends Error {
 }
 const SESSION_MS = 30 * 864e5;
 const MAX_HOOK_BYTES = 256 * 1024;
+const PASSWORD_RESET_REQUEST_MESSAGE = "If an account exists for that email, you'll receive instructions to reset your password.";
 
 export function createCloud({ db, env = process.env, secret, clock = () => Date.now(), fetchImpl = globalThis.fetch }) {
   db.exec(CLOUD_SCHEMA);
@@ -182,26 +183,40 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
 
   route('POST', '/v1/auth/forgot', async ({ body, ip }) => {
     if (!limiter.hit(`forgot:${ip}`, 5, 3600e3)) throw new HttpError(429, 'Too many requests. Try again later.');
-    const user = db.prepare('SELECT * FROM users WHERE email = ? AND disabled = 0').get(String(body.email || '').trim().toLowerCase());
-    let emailConfigured = !!(env.RESEND_API_KEY && env.MAIL_FROM);
-    if (user && emailConfigured) {
+    const email = String(body?.email || '').trim().toLowerCase();
+    const user = validEmail(email)
+      ? db.prepare('SELECT * FROM users WHERE email = ? AND disabled = 0').get(email)
+      : null;
+
+    // Deliberately return the same status and payload for an unknown account,
+    // missing mail configuration, and provider errors. In particular, never
+    // let delivery state become an account-enumeration side channel.
+    if (user && env.RESEND_API_KEY && env.MAIL_FROM) {
       const token = newToken();
       db.prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?,?,?)').run(sha256(token), user.id, clock() + 3600e3);
-      emailConfigured = await sendResetEmail({ env, fetchImpl, to: user.email, link: `${env.PUBLIC_APP_URL || env.PUBLIC_URL || ''}/reset?token=${token}` }).catch(() => false);
+      // Don't wait for provider latency: doing so would turn known-account and
+      // unknown-account requests into distinguishable timing responses.
+      // Email is a best-effort background send in this single-process design;
+      // failures stay private and are never logged with recipient/token data.
+      void sendResetEmail({ env, fetchImpl, to: user.email, link: `${env.PUBLIC_APP_URL || env.PUBLIC_URL || ''}/reset?token=${token}` }).catch(() => {});
     }
-    // Same answer whether or not the account exists (no account enumeration).
-    return { ok: true, message: emailConfigured ? 'If that email has an account, a reset link is on its way.' : 'Password reset email isn\'t set up on this server. Ask the server owner for a reset link.' };
+    return { ok: true, message: PASSWORD_RESET_REQUEST_MESSAGE };
   }, { public: true });
 
   async function applyReset(token, password, ip) {
     if (!limiter.hit(`reset:${ip}`, 20, 3600e3)) throw new HttpError(429, 'Too many attempts.');
     const r = db.prepare('SELECT * FROM password_resets WHERE token_hash = ?').get(sha256(token || ''));
-    if (!r || r.used || r.expires_at < clock()) throw new HttpError(400, 'This reset link is invalid or expired. Request a new one.');
+    if (!r || r.used || r.expires_at <= clock()) throw new HttpError(400, 'This reset link is invalid or expired. Request a new one.');
     const pwErr = passwordProblem(password);
     if (pwErr) throw new HttpError(422, pwErr);
     const hash = await hashPassword(password);
     tx(db, () => {
-      db.prepare('UPDATE password_resets SET used = 1 WHERE token_hash = ?').run(r.token_hash);
+      // Compare-and-set inside the transaction closes the concurrent-reset
+      // race: two requests may both verify before scrypt completes, but only
+      // one can claim the still-valid single-use token.
+      const claimed = db.prepare('UPDATE password_resets SET used = 1 WHERE token_hash = ? AND used = 0 AND expires_at > ?')
+        .run(r.token_hash, clock());
+      if (Number(claimed.changes) !== 1) throw new HttpError(400, 'This reset link is invalid or expired. Request a new one.');
       db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, r.user_id);
       db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(r.user_id);
     });
@@ -216,7 +231,7 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
   route('GET', '/reset', ({ query }) => {
     const token = String(query.get('token') || '');
     if (!token) return page('Reset link incomplete', 'Open the full link from the email, or request a new one in the app.', false);
-    return { __html: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reset password</title><body style="font-family:system-ui;background:#0f1220;color:#e8eaf6;display:grid;place-items:center;min-height:90vh;padding:24px"><form method="post" action="/reset" style="max-width:360px;width:100%"><h2>Choose a new password</h2><input type="hidden" name="token" value="${esc(token)}"><p><input type="password" name="password" required minlength="10" autocomplete="new-password" placeholder="New password" style="width:100%;padding:12px;font-size:16px;border-radius:8px;border:1px solid #444"></p><p><button type="submit" style="width:100%;padding:12px;font-size:16px;border-radius:8px;border:0;background:#22d3ee;color:#0f1220">Set password</button></p><p style="opacity:.7">This signs you out on every device.</p></form>` };
+    return { __html: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reset password</title><body style="font-family:system-ui;background:#0f1220;color:#e8eaf6;display:grid;place-items:center;min-height:90vh;padding:24px"><form method="post" action="/reset" style="max-width:360px;width:100%"><h2>Choose a new password</h2><input type="hidden" name="token" value="${esc(token)}"><p><input type="password" name="password" required minlength="10" maxlength="200" autocomplete="new-password" placeholder="New password" aria-label="New password" style="width:100%;padding:12px;font-size:16px;border-radius:8px;border:1px solid #444"></p><p style="opacity:.8">Use 10–200 characters. Avoid simple repeated or common passwords.</p><p><button type="submit" style="width:100%;padding:12px;font-size:16px;border-radius:8px;border:0;background:#22d3ee;color:#0f1220">Set password</button></p><p style="opacity:.7">This signs you out on every device.</p></form>` };
   }, { public: true });
   route('POST', '/reset', async ({ raw, ip }) => {
     const f = new URLSearchParams(raw.toString('utf8'));

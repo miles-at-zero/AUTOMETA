@@ -61,7 +61,7 @@ On every push, CI runs `flutter analyze`, the unit tests, `test/e2e_test.dart` a
 | # | Step | Pass = | Result |
 |---|---|---|---|
 | 5.1 | Settings → Cloud account, enter `http://…` in a release build | Refused: "Use an https:// server address" | |
-| 5.2 | Sign up / sign in / forgot password | Works. Wrong password gives a clear error | |
+| 5.2 | Sign up / sign in / Forgot Password | Invalid email is explained; submitting a valid email always shows the same generic privacy message; back returns to Sign In with the email retained. Reset email delivery only works when the server operator configures `RESEND_API_KEY` and `MAIL_FROM`. A real reset link must expire after one hour, work once, enforce the server's password rules, and sign out all devices. | |
 | 5.3 | Connect Telegram; build schedule → Telegram; **Test** | Test run shows "Simulated", nothing sent | |
 | 5.4 | Activate; wait for the slot with the app closed and the phone in airplane mode | The message arrives on Telegram. The run is in Activity (☁️) once back online | |
 | 5.5 | Revoke the bot token at @BotFather; wait for the next run | Run failed → automation paused → Reconnect prompt | |

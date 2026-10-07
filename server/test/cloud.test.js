@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { createApp } from '../src/app.js';
 import { openDb } from '../src/db.js';
 import { nextRun } from '../src/cloud/schedule.js';
+import { sha256 } from '../src/crypto.js';
 
 const ENV = { ADMIN_KEY: 'adm', SECRET_KEY: 'k'.repeat(32), PUBLIC_URL: 'https://api.example.com' };
 const TOKEN = '123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const GENERIC_RESET_MESSAGE = "If an account exists for that email, you'll receive instructions to reset your password.";
 
 function fakeTelegram() {
   const tg = { sent: [], tokenValid: true, failNext: 0 };
@@ -27,10 +29,11 @@ function fakeTelegram() {
   return tg;
 }
 
-async function setup({ now = Date.parse('2026-10-05T05:50:00Z') } = {}) {
+async function setup({ now = Date.parse('2026-10-05T05:50:00Z'), env = ENV, fetchImpl } = {}) {
   const clock = { t: now };
   const tg = fakeTelegram();
-  const app = createApp({ db: openDb(':memory:'), env: ENV, clock: () => clock.t, fetchImpl: tg.fetch });
+  const db = openDb(':memory:');
+  const app = createApp({ db, env, clock: () => clock.t, fetchImpl: fetchImpl ?? tg.fetch });
   const srv = app.server().listen(0);
   await new Promise((r) => srv.once('listening', r));
   const base = `http://127.0.0.1:${srv.address().port}`;
@@ -42,7 +45,7 @@ async function setup({ now = Date.parse('2026-10-05T05:50:00Z') } = {}) {
   };
   const t = async (...a) => { const r = await call(...a); if (r.status >= 300) throw new Error(`${a[0]} ${a[1]} → ${r.status} ${JSON.stringify(r.body)}`); return r.body; };
   const signup = async (email = 'ada@example.com') => (await t('POST', '/v1/auth/signup', { email, password: 'correct horse battery', name: 'Ada', timezone: 'Africa/Lagos' })).token;
-  return { app, base, clock, tg, call, t, signup, close: () => srv.close() };
+  return { app, db, base, clock, tg, call, t, signup, close: () => srv.close() };
 }
 
 const tgAutomation = (connectionId, extra = {}) => ({
@@ -65,10 +68,18 @@ test('auth: signup, login, wrong password, logout, reset via admin link, delete'
     assert.equal(me.workspace.plan, 'free');
     await s.t('POST', '/v1/auth/logout', {}, t2);
     assert.equal((await s.call('GET', '/v1/me', undefined, t2)).status, 401);
-    // Forgot never reveals whether the account exists.
-    const f1 = await s.t('POST', '/v1/auth/forgot', { email: 'ada@example.com' });
-    const f2 = await s.t('POST', '/v1/auth/forgot', { email: 'nobody@example.com' });
-    assert.equal(f1.message, f2.message);
+    // Without mail configuration, a known and unknown address receive the
+    // exact same successful response; the server does not fake delivery.
+    const f1 = await s.call('POST', '/v1/auth/forgot', { email: 'ada@example.com' });
+    const f2 = await s.call('POST', '/v1/auth/forgot', { email: 'nobody@example.com' });
+    const malformed = await s.call('POST', '/v1/auth/forgot', null);
+    const invalid = await s.call('POST', '/v1/auth/forgot', { email: 'not-an-email' });
+    assert.equal(f1.status, 200);
+    assert.deepEqual(f1, f2);
+    assert.deepEqual(f1, malformed);
+    assert.deepEqual(f1, invalid);
+    assert.deepEqual(f1.body, { ok: true, message: GENERIC_RESET_MESSAGE });
+    assert.equal(s.db.prepare('SELECT COUNT(*) n FROM password_resets').get().n, 0, 'no token is created when email is not configured');
     const users = await s.t('GET', '/v1/admin/users', undefined, null, { 'x-admin-key': 'adm' });
     const link = await s.t('POST', `/v1/admin/users/${users[0].id}/reset-link`, {}, null, { 'x-admin-key': 'adm' });
     await s.t('POST', '/v1/auth/reset', { token: link.token, password: 'a brand new password' });
@@ -78,6 +89,131 @@ test('auth: signup, login, wrong password, logout, reset via admin link, delete'
     assert.equal((await s.call('DELETE', '/v1/me', { password: 'nope' }, t3)).status, 401);
     await s.t('DELETE', '/v1/me', { password: 'a brand new password' }, t3);
     assert.equal((await s.call('POST', '/v1/auth/login', { email: 'ada@example.com', password: 'a brand new password' })).status, 401);
+  } finally { s.close(); }
+});
+
+test('forgot password: configured email delivery never changes the generic response', async () => {
+  const deliveries = [];
+  const s = await setup({
+    env: { ...ENV, RESEND_API_KEY: 'test-resend-key', MAIL_FROM: 'Autometa <no-reply@example.com>' },
+    fetchImpl: async (url, init) => {
+      deliveries.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: 'email_test' }), { status: 200 });
+    },
+  });
+  try {
+    await s.signup();
+    const known = await s.call('POST', '/v1/auth/forgot', { email: 'ADA@example.com' });
+    const unknown = await s.call('POST', '/v1/auth/forgot', { email: 'nobody@example.com' });
+    assert.equal(known.status, 200);
+    assert.deepEqual(known, unknown);
+    assert.deepEqual(known.body, { ok: true, message: GENERIC_RESET_MESSAGE });
+    assert.equal(deliveries.length, 1, 'only a real, enabled account receives delivery');
+    assert.equal(deliveries[0].url, 'https://api.resend.com/emails');
+
+    const email = JSON.parse(deliveries[0].init.body);
+    assert.equal(email.to, 'ada@example.com');
+    const resetUrl = email.text.match(/https:\/\/[^\s]+/)[0];
+    const rawToken = new URL(resetUrl).searchParams.get('token');
+    assert.ok(rawToken);
+    const stored = s.db.prepare('SELECT token_hash, expires_at, used FROM password_resets').get();
+    assert.equal(stored.token_hash, sha256(rawToken), 'only the token hash is persisted');
+    assert.notEqual(stored.token_hash, rawToken);
+    assert.equal(stored.expires_at, s.clock.t + 60 * 60e3);
+    assert.equal(stored.used, 0);
+    assert.equal(JSON.stringify(known).includes(rawToken), false, 'the reset token is never returned by the API');
+  } finally { s.close(); }
+});
+
+test('forgot password: Resend failures remain generic and do not expose provider details', async () => {
+  let providerBody;
+  const s = await setup({
+    env: { ...ENV, RESEND_API_KEY: 'test-resend-key', MAIL_FROM: 'Autometa <no-reply@example.com>' },
+    fetchImpl: async (_url, init) => {
+      providerBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ error: 'sensitive provider diagnostic' }), { status: 503 });
+    },
+  });
+  try {
+    await s.signup();
+    const known = await s.call('POST', '/v1/auth/forgot', { email: 'ada@example.com' });
+    const unknown = await s.call('POST', '/v1/auth/forgot', { email: 'nobody@example.com' });
+    assert.equal(known.status, 200);
+    assert.deepEqual(known, unknown);
+    assert.deepEqual(known.body, { ok: true, message: GENERIC_RESET_MESSAGE });
+    assert.ok(providerBody);
+    assert.equal(JSON.stringify(known).includes('sensitive provider diagnostic'), false);
+    assert.equal(JSON.stringify(known).includes('token='), false);
+  } finally { s.close(); }
+});
+
+test('forgot password response does not wait for external mail latency', async () => {
+  let releaseProvider;
+  const providerResponse = new Promise((resolve) => {
+    releaseProvider = () => resolve(new Response('', { status: 503 }));
+  });
+  const s = await setup({
+    env: { ...ENV, RESEND_API_KEY: 'test-resend-key', MAIL_FROM: 'Autometa <no-reply@example.com>' },
+    fetchImpl: async () => providerResponse,
+  });
+  try {
+    await s.signup();
+    const request = s.call('POST', '/v1/auth/forgot', { email: 'ada@example.com' });
+    const result = await Promise.race([
+      request,
+      new Promise((resolve) => setTimeout(() => resolve(null), 100)),
+    ]);
+    const completedWhileProviderWasPending = result != null;
+    releaseProvider();
+    const response = result ?? await request;
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, { ok: true, message: GENERIC_RESET_MESSAGE });
+    assert.equal(completedWhileProviderWasPending, true, 'provider latency must not become a timing oracle');
+  } finally { s.close(); }
+});
+
+test('forgot password remains rate limited without revealing account state', async () => {
+  const s = await setup();
+  try {
+    for (let i = 0; i < 5; i++) {
+      const result = await s.call('POST', '/v1/auth/forgot', { email: 'unknown@example.com' });
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.body, { ok: true, message: GENERIC_RESET_MESSAGE });
+    }
+    const limited = await s.call('POST', '/v1/auth/forgot', { email: 'ada@example.com' });
+    assert.equal(limited.status, 429);
+    assert.ok(!JSON.stringify(limited.body).includes('ada@example.com'));
+  } finally { s.close(); }
+});
+
+test('a reset token can be claimed only once even by concurrent requests', async () => {
+  const s = await setup();
+  try {
+    await s.signup();
+    const users = await s.t('GET', '/v1/admin/users', undefined, null, { 'x-admin-key': 'adm' });
+    const link = await s.t('POST', `/v1/admin/users/${users[0].id}/reset-link`, {}, null, { 'x-admin-key': 'adm' });
+    const results = await Promise.all([
+      s.call('POST', '/v1/auth/reset', { token: link.token, password: 'first new password' }),
+      s.call('POST', '/v1/auth/reset', { token: link.token, password: 'second new password' }),
+    ]);
+    assert.deepEqual(results.map((r) => r.status).sort(), [200, 400]);
+    const firstLogin = await s.call('POST', '/v1/auth/login', { email: 'ada@example.com', password: 'first new password' });
+    const secondLogin = await s.call('POST', '/v1/auth/login', { email: 'ada@example.com', password: 'second new password' });
+    assert.equal(Number(firstLogin.status === 200) + Number(secondLogin.status === 200), 1);
+  } finally { s.close(); }
+});
+
+test('reset links expire exactly after one hour', async () => {
+  const s = await setup();
+  try {
+    await s.signup();
+    const users = await s.t('GET', '/v1/admin/users', undefined, null, { 'x-admin-key': 'adm' });
+    const link = await s.t('POST', `/v1/admin/users/${users[0].id}/reset-link`, {}, null, { 'x-admin-key': 'adm' });
+    s.clock.t += 60 * 60e3;
+    const expired = await s.call('POST', '/v1/auth/reset', { token: link.token, password: 'a brand new password' });
+    assert.equal(expired.status, 400);
+    assert.match(expired.body.error, /invalid or expired/);
+    await s.t('POST', '/v1/auth/login', { email: 'ada@example.com', password: 'correct horse battery' });
   } finally { s.close(); }
 });
 
@@ -92,10 +228,16 @@ test('password reset email link opens a working HTML form (GET/POST /reset)', as
     assert.equal(form.status, 200);
     const html = await form.text();
     assert.match(html, /<form method="post" action="\/reset"/);
+    assert.match(html, /minlength="10" maxlength="200"/);
+    assert.match(html, /10–200 characters/);
     assert.ok(!/<script/i.test(html), 'no scripts on the reset page');
+    assert.equal(form.headers.get('cache-control'), 'no-store');
+    assert.equal(form.headers.get('referrer-policy'), 'no-referrer');
     const post = (password) => fetch(`${s.base}/reset`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: link.token, password }).toString() });
-    const weak = await (await post('short')).text();
-    assert.match(weak, /Password not changed/);
+    for (const weakPassword of ['short', 'a'.repeat(201), 'aaaaaaaaaa', 'password12345']) {
+      const weak = await (await post(weakPassword)).text();
+      assert.match(weak, /Password not changed/);
+    }
     const ok = await (await post('a brand new password')).text();
     assert.match(ok, /Password changed/);
     await s.t('POST', '/v1/auth/login', { email: 'rose@example.com', password: 'a brand new password' });

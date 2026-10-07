@@ -11,10 +11,11 @@ import '../../business/business_api.dart';
 import '../../cloud/cloud_session.dart';
 import '../../cloud/push_client.dart';
 import '../../core/theme/design_tokens.dart';
-import '../../legal/legal_texts.dart';
-import 'legal_screen.dart';
 import '../../core/utils/formatters.dart';
+import '../../legal/legal_texts.dart';
 import '../widgets/autometa_widgets.dart';
+import 'forgot_password_screen.dart';
+import 'legal_screen.dart';
 
 /// Autometa Cloud account: sign in / sign up / reset, and the Cloud
 /// connections (credentials live encrypted on the server, used by Cloud runs).
@@ -37,6 +38,7 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
   final TextEditingController _name = TextEditingController();
   bool _signUp = false;
   bool _busy = false;
+  bool _hidePassword = true;
 
   /// The server address is infrastructure, not something normal users need:
   /// builds made with `--dart-define=AUTOMETA_CLOUD_URL` use it silently and
@@ -115,10 +117,20 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
         await _loadConnections();
       });
 
-  Future<void> _forgot() => _run(() async {
-        final String msg = await context.read<CloudSession>().forgotPassword(_url.text, _email.text);
-        if (mounted) showToast(context, msg);
-      });
+  Future<void> _openForgotPassword() async {
+    FocusScope.of(context).unfocus();
+    final String? email = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => ForgotPasswordScreen(
+          serverUrl: _url.text,
+          initialEmail: _email.text,
+          emailController: _email,
+        ),
+      ),
+    );
+    if (!mounted || email == null) return;
+    _email.text = email;
+  }
 
   Future<void> _loadConnections() async {
     final CloudSession s = context.read<CloudSession>();
@@ -321,12 +333,39 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
                 ),
               if (!s.signedIn) ...<Widget>[
                 if (_signUp) TextField(controller: _name, decoration: const InputDecoration(labelText: 'Your name')),
-                TextField(controller: _email, keyboardType: TextInputType.emailAddress, autofillHints: const <String>[AutofillHints.email], decoration: const InputDecoration(labelText: 'Email')),
-                TextField(controller: _password, obscureText: true, decoration: InputDecoration(labelText: 'Password', helperText: _signUp ? 'At least 10 characters' : null)),
+                TextField(
+                  key: const Key('cloud.email'),
+                  controller: _email,
+                  keyboardType: TextInputType.emailAddress,
+                  autofillHints: const <String>[AutofillHints.email],
+                  autocorrect: false,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                ),
+                TextField(
+                  key: const Key('cloud.password'),
+                  controller: _password,
+                  obscureText: _hidePassword,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    helperText: _signUp ? '10–200 characters. Avoid repeated or common passwords.' : null,
+                    helperMaxLines: 2,
+                    suffixIcon: IconButton(
+                      key: const Key('cloud.passwordVisibility'),
+                      tooltip: _hidePassword ? 'Show password' : 'Hide password',
+                      onPressed: () => setState(() => _hidePassword = !_hidePassword),
+                      icon: Icon(_hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: AutometaSpacing.lg),
                 PrimaryAction(label: _signUp ? 'Create account' : 'Sign in', icon: Icons.login, busy: _busy, onPressed: _submit),
                 TextButton(onPressed: _busy ? null : () => setState(() => _signUp = !_signUp), child: Text(_signUp ? 'I already have an account' : 'Create a Cloud account')),
-                if (!_signUp) TextButton(onPressed: _busy ? null : _forgot, child: const Text('Forgot password?')),
+                if (!_signUp)
+                  TextButton(
+                    key: const Key('cloud.forgotPassword'),
+                    onPressed: _busy ? null : _openForgotPassword,
+                    child: const Text('Forgot password?'),
+                  ),
                 const SizedBox(height: 8),
                 Text('No account? On-device automations keep working without one.', style: t.bodySmall),
                 const SizedBox(height: AutometaSpacing.md),

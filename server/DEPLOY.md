@@ -30,8 +30,14 @@ What *has* been exercised:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | for Gmail | docs/GMAIL.md. Without them, Gmail shows as "Unavailable: server configuration required" and OAuth start returns 503. |
 | `FCM_SERVICE_ACCOUNT_JSON` | for push | docs/NOTIFICATIONS.md. Without it, alerts are stored and every push attempt is logged as `not_configured`. The app falls back to its in-app alerts poll. |
 | `META_APP_SECRET`, `WEBHOOK_VERIFY_TOKEN`, `GRAPH_VERSION` | for WhatsApp Business | server/README.md |
-| `RESEND_API_KEY`, `MAIL_FROM` | for password-reset email | Without them, resets go through the admin endpoint. The emailed link opens `PUBLIC_URL/reset?token=…`, a script-free form served by this server. |
+| `RESEND_API_KEY`, `MAIL_FROM` | for password-reset email | Both are required for email delivery. Without them, self-service reset requests still receive the same privacy-preserving response, but no email is sent; an operator can create a one-hour reset link through the protected admin endpoint. The emailed link opens the server's script-free `/reset` form. |
 | `CLOUD_TICK_MS` | optional | Scheduler pass interval; default 5000. |
+
+### Password-reset behavior and mail configuration
+
+The existing Cloud-auth flow issues cryptographically random reset tokens, stores only their SHA-256 hashes, and expires them after one hour. A token can be used once. Both the API and the server-hosted `/reset` form enforce the same password rules, store passwords using scrypt, and delete every session for the account after a successful reset. Reset requests are rate-limited. The public request always returns the same generic success status/message for a known or unknown account and whether email delivery succeeds or fails; provider diagnostics and tokens are not returned to the requester.
+
+Actual email delivery is external configuration: set both `RESEND_API_KEY` and `MAIL_FROM` in the server environment. They are intentionally not hard-coded. Configured mail is dispatched asynchronously as a best-effort Resend request (10-second timeout), so provider latency cannot reveal account existence. Without the variables—or if Resend is unavailable—the generic response is still returned, but no reset email is delivered; there is no durable email outbox/retry queue in this version. The protected operator reset-link endpoint remains an administrative recovery mechanism, not a replacement email provider. Server logs do not include submitted passwords or reset tokens.
 
 ## 3. Directories, permissions, database
 * Keep the database in its own directory (`/data`). SQLite also writes `autometa.db-wal` and `autometa.db-shm` beside it, so the *directory* must be writable, not just the file.

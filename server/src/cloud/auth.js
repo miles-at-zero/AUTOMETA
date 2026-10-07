@@ -46,6 +46,7 @@ export async function sendResetEmail({ env, fetchImpl, to, link }) {
   if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false;
   const res = await fetchImpl('https://api.resend.com/emails', {
     method: 'POST', headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(10_000),
     body: JSON.stringify({ from: env.MAIL_FROM, to, subject: 'Reset your Autometa password', text: `Reset your password (valid 1 hour):\n${link}\n\nIf you didn't ask for this, ignore this email.` }),
   });
   return res.ok;
