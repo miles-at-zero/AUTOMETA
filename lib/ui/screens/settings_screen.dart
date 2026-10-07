@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../app_services.dart';
 import '../../cloud/cloud_session.dart';
+import '../../cloud/push_client.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/design_tokens.dart';
 import '../../core/utils/formatters.dart';
@@ -126,6 +127,11 @@ class SettingsScreen extends StatelessWidget {
               Panel(
                 padding: EdgeInsets.zero,
                 child: Column(children: <Widget>[
+                  const ListTile(
+                    leading: Icon(Icons.phone_android),
+                    title: Text('On this device'),
+                    subtitle: Text('Alerts posted by this phone for automations that run on this device.'),
+                  ),
                   SwitchListTile(title: const Text('Workflow completed'), value: prefs.onCompleted, onChanged: (bool v) => settings.setNotificationPreferences(prefs.copyWith(onCompleted: v))),
                   SwitchListTile(title: const Text('Workflow failed'), value: prefs.onFailed, onChanged: (bool v) => settings.setNotificationPreferences(prefs.copyWith(onFailed: v))),
                   SwitchListTile(title: const Text('Approval required'), value: prefs.onApproval, onChanged: (bool v) => settings.setNotificationPreferences(prefs.copyWith(onApproval: v))),
@@ -143,6 +149,8 @@ class SettingsScreen extends StatelessWidget {
                         child: const Text('Allow'),
                       ),
                     ),
+                  const Divider(height: 1),
+                  _CloudPushTile(onOpen: () => push(const CloudAccountScreen())),
                 ]),
               ),
               const SizedBox(height: AutometaSpacing.xl),
@@ -206,6 +214,47 @@ class DeveloperScreen extends StatelessWidget {
           child: Text(logs[i].toString(), style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
         ),
       ),
+    );
+  }
+}
+
+
+/// Cloud alerts reach the phone through push (Firebase). Shows the real state
+/// from [PushClient]; never claims push works when the build or server lacks
+/// the configuration (EXTERNAL CONFIG REQUIRED).
+class _CloudPushTile extends StatelessWidget {
+  const _CloudPushTile({required this.onOpen});
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final CloudSession cloud = context.watch<CloudSession>();
+    final PushClient? client = cloud.push;
+    if (client == null) {
+      return ListTile(
+        leading: const Icon(Icons.cloud_off_outlined),
+        title: const Text('Cloud push alerts'),
+        subtitle: const Text('Setup required: push is not available in this build. Cloud alerts appear when you open the app.'),
+        trailing: const StatusPill(label: 'SETUP REQUIRED', color: AutometaColors.warning),
+        onTap: onOpen,
+      );
+    }
+    return ListenableBuilder(
+      listenable: client,
+      builder: (BuildContext context, _) {
+        final PushStatus st = client.status;
+        final bool on = st == PushStatus.registered;
+        return ListTile(
+          leading: Icon(on ? Icons.notifications_active_outlined : Icons.cloud_outlined),
+          title: const Text('Cloud push alerts'),
+          subtitle: Text(st.explanation),
+          trailing: StatusPill(
+            label: on ? 'ON' : (st == PushStatus.idle ? 'NOT ACTIVE' : 'SETUP REQUIRED'),
+            color: on ? AutometaColors.success : (st == PushStatus.idle ? AutometaColors.neutral : AutometaColors.warning),
+          ),
+          onTap: onOpen,
+        );
+      },
     );
   }
 }

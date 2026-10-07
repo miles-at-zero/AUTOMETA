@@ -98,6 +98,16 @@ CREATE TABLE IF NOT EXISTS oauth_states (
   state TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, user_id TEXT NOT NULL, integration TEXT NOT NULL,
   verifier TEXT, redirect TEXT, expires_at INTEGER NOT NULL
 );
+-- Guardian: every scheduled slot the scheduler consumed (written only by
+-- CloudEngine.tick, at the moment it picks the slot up). Lets Guardian tell
+-- "ran", "failed", "skipped", "missed" and "never happened" apart. Tracking
+-- starts when this table exists; older slots are never reconstructed.
+CREATE TABLE IF NOT EXISTS schedule_slots (
+  automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL, slot INTEGER NOT NULL, consumed_at INTEGER NOT NULL,
+  PRIMARY KEY (automation_id, slot)
+);
+CREATE INDEX IF NOT EXISTS idx_slots_ws ON schedule_slots(workspace_id, slot);
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

@@ -288,6 +288,9 @@ class CloudSession extends ChangeNotifier {
   // ---------------------------------------------------------------- usage
   Future<Json> usage() => _wrap(() => _need().get('/v1/usage'));
 
+  /// Read-only health + findings for Cloud automations (server Guardian).
+  Future<Json> guardian() => _wrap(() => _need().get('/v1/guardian'));
+
   // ---------------------------------------------------------------- automations
   Future<CloudMapping> mapping(Workflow w) async {
     final List<Json> conns = await connections();

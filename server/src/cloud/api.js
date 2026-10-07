@@ -12,6 +12,7 @@ import { CLOUD_PLANS, cloudPlan, effectiveCloudPlan, LimitError, upgradeFor } fr
 import { describeSchedule, nextRun, validTimezone } from './schedule.js';
 import { CLOUD_TEMPLATES, STARTERS } from './templates.js';
 import { validateAutomation } from './validate.js';
+import { guardianReport } from './guardian.js';
 import { hashPassword, passwordProblem, RateLimiter, sendResetEmail, validEmail, verifyPassword } from './auth.js';
 
 class HttpError extends Error {
@@ -660,6 +661,8 @@ export function createCloud({ db, env = process.env, secret, clock = () => Date.
   });
 
   // ------------------------------------------------------------ dashboard, usage, notifications, search
+  // Read-only health + findings derived from stored runs/connections.
+  route('GET', '/v1/guardian', ({ ctx }) => guardianReport(db, ctx.ws.id, clock()));
   route('GET', '/v1/dashboard', ({ ctx }) => {
     const ws = ctx.ws.id;
     const dayStart = clock() - 864e5;

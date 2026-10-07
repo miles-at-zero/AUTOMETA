@@ -13,6 +13,7 @@ import '../../services/connections/connection_state.dart';
 import '../../state/app_state.dart';
 import '../app.dart';
 import '../widgets/autometa_widgets.dart';
+import '../widgets/guardian_panel.dart';
 import 'approval_sheet.dart';
 import 'business/business_shell.dart';
 import '../widgets/message_ready_card.dart';
@@ -89,6 +90,8 @@ class HomeScreen extends StatelessWidget {
                   ],
                   _NextPanel(state: state),
                   const SizedBox(height: AutometaSpacing.md),
+                  // Re-checks after each new run (key changes).
+                  GuardianPanel(key: ValueKey<String?>('guardian.${state.lastExecution?.id}.${state.workflows.length}')),
                   Row(children: <Widget>[
                     Expanded(child: _Metric(label: 'Active', value: '${state.activeCount}', color: AutometaColors.accent)),
                     const SizedBox(width: AutometaSpacing.md),

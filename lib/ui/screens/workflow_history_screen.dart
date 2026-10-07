@@ -7,6 +7,7 @@ import '../../cloud/cloud_session.dart';
 import '../../core/theme/design_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/capabilities/execution_capabilities.dart';
+import '../../domain/health/automation_health.dart';
 import '../../domain/models/execution.dart';
 import '../../domain/models/execution_mode.dart';
 import '../../domain/models/step.dart';
@@ -14,6 +15,7 @@ import '../../domain/models/workflow.dart';
 import '../../state/app_state.dart';
 import '../widgets/autometa_widgets.dart';
 import '../widgets/execution_widgets.dart';
+import '../widgets/health_panel.dart';
 import 'builder_screen.dart';
 import 'cloud_account_screen.dart';
 import 'cloud_execution_screen.dart';
@@ -36,6 +38,11 @@ typedef WorkflowHistoryScreen = AutomationDetailScreen;
 class _AutomationDetailScreenState extends State<AutomationDetailScreen> {
   Future<List<ExecutionRecord>>? _local;
   Future<Json?>? _cloud;
+
+  /// Real runs for health, from where this automation actually runs: Cloud
+  /// rows for Cloud automations, device records for on-device ones. Null when
+  /// that history can't be read (e.g. signed out / offline for Cloud).
+  Future<List<RunSample>?>? _samples;
   bool _busy = false;
 
   @override
@@ -55,6 +62,21 @@ class _AutomationDetailScreenState extends State<AutomationDetailScreen> {
     final CloudSession c = context.read<CloudSession>();
     final String? id = _currentCloudId();
     _cloud = id != null && c.signedIn ? c.detail(id).then<Json?>((Json j) => j) : Future<Json?>.value();
+    final bool cloudMode = _w.isCloud;
+    final Future<List<ExecutionRecord>> local = _local!;
+    final Future<Json?> cloud = _cloud!;
+    _samples = () async {
+      if (!cloudMode) {
+        return (await local).map(RunSample.fromRecord).whereType<RunSample>().toList();
+      }
+      try {
+        final Json? d = await cloud;
+        if (d == null) return null;
+        return asList(d['recent']).map(RunSample.fromCloud).whereType<RunSample>().toList();
+      } catch (_) {
+        return null;
+      }
+    }();
   }
 
   String? _currentCloudId() {
@@ -153,6 +175,28 @@ class _AutomationDetailScreenState extends State<AutomationDetailScreen> {
                   ),
                 ]),
                 const SizedBox(height: AutometaSpacing.lg),
+
+                // Health: computed from real runs only (see AutomationHealth).
+                FutureBuilder<List<RunSample>?>(
+                  future: _samples,
+                  builder: (BuildContext context, AsyncSnapshot<List<RunSample>?> snap) {
+                    if (snap.connectionState != ConnectionState.done) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: AutometaSpacing.lg),
+                      child: HealthPanel(
+                        health: snap.data == null
+                            ? null
+                            : AutomationHealth.evaluate(
+                                enabled: w.enabled,
+                                runs: snap.data!,
+                                now: DateTime.now(),
+                                configIssues: <String>[for (final CapabilityIssue i in modeIssues) '${i.label}: ${i.reason}'],
+                              ),
+                        isCloud: w.isCloud,
+                      ),
+                    );
+                  },
+                ),
 
                 // Execution
                 Panel(

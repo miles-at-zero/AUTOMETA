@@ -37,6 +37,12 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
   final TextEditingController _name = TextEditingController();
   bool _signUp = false;
   bool _busy = false;
+
+  /// The server address is infrastructure, not something normal users need:
+  /// builds made with `--dart-define=AUTOMETA_CLOUD_URL` use it silently and
+  /// keep the field under "Advanced server settings". Builds without one must
+  /// show the field, or nobody could sign in.
+  bool _showServer = CloudSession.defaultServerUrl.isEmpty;
   String? _error;
   List<Json>? _integrations;
   List<Json>? _connections;
@@ -96,7 +102,10 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
 
   Future<void> _submit() => _run(() async {
         final CloudSession s = context.read<CloudSession>();
-        if (_url.text.trim().isEmpty) throw CloudException('Enter your Autometa Cloud server address.');
+        if (_url.text.trim().isEmpty) {
+          setState(() => _showServer = true);
+          throw CloudException('Enter your Autometa Cloud server address.');
+        }
         if (_signUp) {
           await s.signUp(_url.text, _email.text, _password.text, _name.text);
         } else {
@@ -311,7 +320,6 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
                   child: Text(_error!, style: t.bodyMedium?.copyWith(color: AutometaColors.danger)),
                 ),
               if (!s.signedIn) ...<Widget>[
-                TextField(controller: _url, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Server address', hintText: 'https://api.your-autometa.com')),
                 if (_signUp) TextField(controller: _name, decoration: const InputDecoration(labelText: 'Your name')),
                 TextField(controller: _email, keyboardType: TextInputType.emailAddress, autofillHints: const <String>[AutofillHints.email], decoration: const InputDecoration(labelText: 'Email')),
                 TextField(controller: _password, obscureText: true, decoration: InputDecoration(labelText: 'Password', helperText: _signUp ? 'At least 10 characters' : null)),
@@ -321,12 +329,41 @@ class _CloudAccountScreenState extends State<CloudAccountScreen> {
                 if (!_signUp) TextButton(onPressed: _busy ? null : _forgot, child: const Text('Forgot password?')),
                 const SizedBox(height: 8),
                 Text('No account? On-device automations keep working without one.', style: t.bodySmall),
+                const SizedBox(height: AutometaSpacing.md),
+                if (!_showServer)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const Key('cloud.advancedServer'),
+                      onPressed: _busy ? null : () => setState(() => _showServer = true),
+                      icon: const Icon(Icons.tune, size: 18),
+                      label: const Text('Advanced server settings'),
+                    ),
+                  )
+                else ...<Widget>[
+                  Text('ADVANCED', style: t.labelSmall?.copyWith(letterSpacing: 1.2)),
+                  TextField(
+                    key: const Key('cloud.serverField'),
+                    controller: _url,
+                    keyboardType: TextInputType.url,
+                    decoration: InputDecoration(
+                      labelText: 'Server address',
+                      hintText: 'https://api.your-autometa.com',
+                      helperText: CloudSession.defaultServerUrl.isEmpty
+                          ? 'This build has no default server. Enter your Autometa Cloud address.'
+                          : 'Only change this if you run your own Autometa server.',
+                      helperMaxLines: 3,
+                    ),
+                  ),
+                ],
               ] else ...<Widget>[
                 Panel(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
                     LabeledValue(label: 'Signed in as', value: s.email),
                     LabeledValue(label: 'Plan', value: s.planName.isEmpty ? '—' : s.planName),
-                    LabeledValue(label: 'Server', value: s.serverUrl),
+                    // Infrastructure detail: only worth showing for a custom server.
+                    if (s.serverUrl != CloudSession.cleanUrl(CloudSession.defaultServerUrl))
+                      LabeledValue(label: 'Server', value: s.serverUrl),
                     if (s.error != null) Text('Offline: showing the last known state. ${s.error}', style: t.bodySmall),
                     const SizedBox(height: 8),
                     OutlinedButton(onPressed: () => context.read<CloudSession>().signOut(), child: const Text('Sign out')),
