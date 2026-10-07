@@ -20,6 +20,9 @@ class GuardianFinding {
     required this.title,
     required this.body,
     required this.isCloud,
+    this.why = '',
+    this.actionLabel,
+    this.detectedAt,
     this.automationName,
     this.workflowId,
     this.cloudAutomationId,
@@ -34,6 +37,13 @@ class GuardianFinding {
   final String title;
   final String body;
   final bool isCloud;
+
+  /// Why Guardian cares (one sentence).
+  final String why;
+
+  /// Button label for the deep link ("View automation", "Reconnect"…).
+  final String? actionLabel;
+  final DateTime? detectedAt;
   final String? automationName;
 
   /// Local workflow id (on-device findings).
@@ -65,6 +75,9 @@ class GuardianFinding {
         certain: f['certainty'] == 'certain',
         title: title,
         body: '${f['body'] ?? ''}',
+        why: '${f['why'] ?? ''}',
+        actionLabel: f['action'] is Map ? (f['action'] as Map)['label'] as String? : null,
+        detectedAt: f['detectedAt'] is num ? DateTime.fromMillisecondsSinceEpoch((f['detectedAt'] as num).toInt()) : null,
         isCloud: true,
         automationName: f['automationName'] as String?,
         cloudAutomationId: f['automationId'] as String?,
@@ -89,8 +102,15 @@ class GuardianFinding {
         kind: h.state == HealthState.critical ? 'repeated_failures' : 'recent_failures',
         severity: h.state == HealthState.critical ? FindingSeverity.critical : FindingSeverity.attention,
         certain: true,
-        title: h.reasons.first,
-        body: h.lastFailureReason ?? 'Open the latest run to see what went wrong.',
+        title: h.state == HealthState.critical
+            ? 'Failed ${h.reasons.first.replaceAll(RegExp(r'[^0-9]'), '')} times in a row'
+            : h.reasons.first,
+        why: h.state == HealthState.critical
+            ? 'Repeated failures usually mean something changed, and it will keep failing until it is fixed.'
+            : 'A recent failure means at least one run did not do its job.',
+        body: h.lastFailureReason == null ? 'Open the latest run to see what went wrong.' : 'Last error: ${h.lastFailureReason}',
+        actionLabel: 'View automation',
+        detectedAt: now,
         isCloud: false,
         automationName: w.name,
         workflowId: w.id,
@@ -99,6 +119,22 @@ class GuardianFinding {
     return out;
   }
 
-  static List<GuardianFinding> sorted(Iterable<GuardianFinding> all) =>
-      all.toList()..sort((GuardianFinding a, GuardianFinding b) => a.severity.index.compareTo(b.severity.index));
+  /// Same order as the server: critical failures, connections, missed
+  /// schedules, other failures, inactivity. Stable for equal ranks.
+  static const Map<String, int> _rank = <String, int>{
+    'paused_after_failures': 0, 'repeated_failures': 0, 'connection_attention': 1,
+    'missed_schedule': 2, 'schedule_overdue': 2, 'recent_failures': 3, 'looks_inactive': 4,
+  };
+
+  int get rank => _rank[kind] ?? 9;
+
+  static List<GuardianFinding> sorted(Iterable<GuardianFinding> all) {
+    final List<GuardianFinding> list = all.toList();
+    final List<int> idx = List<int>.generate(list.length, (int i) => i);
+    idx.sort((int a, int b) {
+      final int c = list[a].rank.compareTo(list[b].rank);
+      return c != 0 ? c : a.compareTo(b);
+    });
+    return <GuardianFinding>[for (final int i in idx) list[i]];
+  }
 }

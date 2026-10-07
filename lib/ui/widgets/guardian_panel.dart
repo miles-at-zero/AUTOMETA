@@ -18,23 +18,24 @@ Color findingColor(FindingSeverity s) => switch (s) {
       FindingSeverity.info => AutometaColors.info,
     };
 
-/// Result of one Guardian check. [cloudChecked] false = Cloud findings could
-/// not be loaded (signed out / offline), which the panel says instead of
-/// implying everything is fine.
-class _Report {
-  const _Report(this.findings, {required this.cloudChecked, required this.cloudRelevant});
-  final List<GuardianFinding> findings;
-  final bool cloudChecked;
-  final bool cloudRelevant;
-}
+/// How many findings Home shows before "+ N more" (keeps Home calm).
+const int kGuardianHomeLimit = 3;
 
-/// GUARDIAN on Home: "N things need your attention", from real data only.
-/// Hidden entirely when there are no active automations to watch.
+/// Loads Guardian findings (device + Cloud) and shows [GuardianFindingsView].
+/// Hidden entirely when no automation is active: nothing to watch.
 class GuardianPanel extends StatefulWidget {
   const GuardianPanel({super.key});
 
   @override
   State<GuardianPanel> createState() => _GuardianPanelState();
+}
+
+class _Report {
+  const _Report(this.findings, {required this.cloudGap});
+  final List<GuardianFinding> findings;
+
+  /// Active Cloud automations exist but Cloud couldn't be checked.
+  final bool cloudGap;
 }
 
 class _GuardianPanelState extends State<GuardianPanel> {
@@ -60,10 +61,10 @@ class _GuardianPanelState extends State<GuardianPanel> {
         found.addAll(GuardianFinding.fromCloudReport(await cloud.guardian()));
         cloudChecked = true;
       } catch (_) {
-        cloudChecked = false;
+        cloudChecked = false; // offline / older server: say so, never "all clear"
       }
     }
-    return _Report(GuardianFinding.sorted(found), cloudChecked: cloudChecked, cloudRelevant: cloudRelevant);
+    return _Report(GuardianFinding.sorted(found), cloudGap: cloudRelevant && !cloudChecked);
   }
 
   void _open(GuardianFinding f) {
@@ -85,50 +86,18 @@ class _GuardianPanelState extends State<GuardianPanel> {
   Widget build(BuildContext context) {
     final bool anyActive = context.select<AppState, bool>((AppState s) => s.workflows.any((Workflow w) => w.enabled));
     if (!anyActive) return const SizedBox.shrink();
-    final TextTheme t = Theme.of(context).textTheme;
     return FutureBuilder<_Report>(
       future: _report,
       builder: (BuildContext context, AsyncSnapshot<_Report> snap) {
         final _Report? r = snap.data;
         if (r == null) return const SizedBox.shrink();
-        final List<GuardianFinding> fs = r.findings;
-        final bool cloudGap = r.cloudRelevant && !r.cloudChecked;
         return Padding(
           padding: const EdgeInsets.only(bottom: AutometaSpacing.md),
-          child: Panel(
-            key: const Key('guardian.panel'),
-            glow: fs.isEmpty ? null : findingColor(fs.first.severity),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
-              Row(children: <Widget>[
-                const Icon(Icons.shield_outlined, size: 18, color: AutometaColors.accent),
-                const SizedBox(width: AutometaSpacing.sm),
-                Expanded(child: Text('GUARDIAN', style: t.labelLarge?.copyWith(letterSpacing: 1.2))),
-                IconButton(
-                  tooltip: 'Check again',
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  onPressed: () => setState(() => _report = _load()),
-                ),
-              ]),
-              Text(
-                fs.isEmpty
-                    ? (cloudGap ? 'Nothing needs attention on this device.' : 'Nothing needs your attention right now.')
-                    : '${fs.length} ${fs.length == 1 ? 'thing needs' : 'things need'} your attention',
-                key: const Key('guardian.headline'),
-                style: t.titleMedium,
-              ),
-              if (cloudGap)
-                Padding(
-                  padding: const EdgeInsets.only(top: AutometaSpacing.xs),
-                  child: Text('Cloud automations couldn\'t be checked (signed out or offline).', style: t.bodySmall),
-                ),
-              for (final GuardianFinding f in fs.take(3)) _FindingRow(f, onTap: () => _open(f)),
-              if (fs.length > 3)
-                Padding(
-                  padding: const EdgeInsets.only(top: AutometaSpacing.xs),
-                  child: Text('+ ${fs.length - 3} more. Open each automation to review.', style: t.bodySmall),
-                ),
-            ]),
+          child: GuardianFindingsView(
+            findings: r.findings,
+            cloudGap: r.cloudGap,
+            onOpen: _open,
+            onRefresh: () => setState(() => _report = _load()),
           ),
         );
       },
@@ -136,36 +105,108 @@ class _GuardianPanelState extends State<GuardianPanel> {
   }
 }
 
+/// Pure presentation of Guardian findings (tested directly).
+class GuardianFindingsView extends StatelessWidget {
+  const GuardianFindingsView({
+    required this.findings,
+    required this.onOpen,
+    this.cloudGap = false,
+    this.onRefresh,
+    this.limit = kGuardianHomeLimit,
+    super.key,
+  });
+
+  /// Already ordered (see [GuardianFinding.sorted]).
+  final List<GuardianFinding> findings;
+  final bool cloudGap;
+  final ValueChanged<GuardianFinding> onOpen;
+  final VoidCallback? onRefresh;
+  final int limit;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme t = Theme.of(context).textTheme;
+    final List<GuardianFinding> fs = findings;
+    return Panel(
+      key: const Key('guardian.panel'),
+      glow: fs.isEmpty ? null : findingColor(fs.first.severity),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
+        Row(children: <Widget>[
+          const Icon(Icons.shield_outlined, size: 18, color: AutometaColors.accent),
+          const SizedBox(width: AutometaSpacing.sm),
+          Expanded(child: Text('NEEDS YOUR ATTENTION', style: t.labelLarge?.copyWith(letterSpacing: 1.2))),
+          if (onRefresh != null)
+            IconButton(
+              tooltip: 'Check again',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.refresh, size: 18),
+              onPressed: onRefresh,
+            ),
+        ]),
+        Text(
+          fs.isEmpty
+              ? (cloudGap ? 'Nothing needs attention on this device.' : 'Nothing needs your attention right now.')
+              : '${fs.length} ${fs.length == 1 ? 'thing needs' : 'things need'} your attention',
+          key: const Key('guardian.headline'),
+          style: t.titleMedium,
+        ),
+        if (cloudGap)
+          Padding(
+            padding: const EdgeInsets.only(top: AutometaSpacing.xs),
+            child: Text('Cloud automations couldn\'t be checked (signed out, offline, or the server doesn\'t support Guardian yet).',
+                key: const Key('guardian.cloudGap'), style: t.bodySmall),
+          ),
+        for (final GuardianFinding f in fs.take(limit)) _FindingRow(f, onOpen: () => onOpen(f)),
+        if (fs.length > limit)
+          Padding(
+            padding: const EdgeInsets.only(top: AutometaSpacing.xs),
+            child: Text('+ ${fs.length - limit} more. Open each automation to review.', key: const Key('guardian.more'), style: t.bodySmall),
+          ),
+      ]),
+    );
+  }
+}
+
 class _FindingRow extends StatelessWidget {
-  const _FindingRow(this.f, {required this.onTap});
+  const _FindingRow(this.f, {required this.onOpen});
   final GuardianFinding f;
-  final VoidCallback onTap;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     final TextTheme t = Theme.of(context).textTheme;
     final Color c = findingColor(f.severity);
+    final String subject = f.automationName ?? (f.connectionId != null ? 'Connection' : '');
     final String where = f.isCloud ? '☁ Cloud' : '📱 On this device';
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AutometaSpacing.radiusSm),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AutometaSpacing.sm),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          Padding(padding: const EdgeInsets.only(top: 6), child: StatusDot(c)),
-          const SizedBox(width: AutometaSpacing.md),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-              Text(f.title, style: t.titleSmall),
-              if (f.automationName != null) Text('${f.automationName} · $where', style: t.bodySmall),
-              if (f.body.isNotEmpty) Text(f.body, style: t.bodySmall, maxLines: 3, overflow: TextOverflow.ellipsis),
-              if (!f.certain)
-                Text('Looks unusual. This may be expected.', style: t.labelSmall?.copyWith(color: c)),
-            ]),
-          ),
-          const Icon(Icons.chevron_right, size: 18),
-        ]),
-      ),
+    return Padding(
+      key: Key('guardian.finding.${f.kind}.${f.workflowId ?? f.cloudAutomationId ?? f.connectionId}'),
+      padding: const EdgeInsets.only(top: AutometaSpacing.md),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Padding(padding: const EdgeInsets.only(top: 6), child: StatusDot(c)),
+        const SizedBox(width: AutometaSpacing.md),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+            if (subject.isNotEmpty) Text(subject, style: t.titleSmall),
+            Text(f.title, style: t.bodyMedium?.copyWith(color: c)),
+            if (f.body.isNotEmpty) Text(f.body, style: t.bodySmall, maxLines: 3, overflow: TextOverflow.ellipsis),
+            if (f.why.isNotEmpty) Text(f.why, style: t.bodySmall),
+            if (!f.certain) Text('Looks unusual. This may be expected.', style: t.labelSmall?.copyWith(color: c)),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: AutometaSpacing.sm,
+              children: <Widget>[
+                Text(where, style: t.labelSmall),
+                TextButton(
+                  key: Key('guardian.action.${f.kind}'),
+                  style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                  onPressed: onOpen,
+                  child: Text(f.actionLabel ?? 'View'),
+                ),
+              ],
+            ),
+          ]),
+        ),
+      ]),
     );
   }
 }

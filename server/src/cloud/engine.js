@@ -324,6 +324,10 @@ export class CloudEngine {
       tx(this.db, () => {
         const next = this.schedule(a, Math.max(now, slot));
         this.db.prepare('UPDATE automations SET next_run_at = ? WHERE id = ? AND next_run_at = ?').run(next, a.id, slot);
+        // Expected-run tracking (Guardian): this slot was due and is now being
+        // handled. The execution row for it (run / skipped / "Missed:") is
+        // matched later via executions.scheduled_for.
+        this.db.prepare('INSERT OR IGNORE INTO schedule_slots (automation_id, workspace_id, slot, consumed_at) VALUES (?,?,?,?)').run(a.id, a.workspace_id, slot, now);
       });
       if (now - slot > MISSED_GRACE_MS) {
         try {

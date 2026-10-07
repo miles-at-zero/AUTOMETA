@@ -28,24 +28,44 @@ shown, but they are **never failures**.
 
 "Most common failure" is shown only when the same reason occurred at least twice.
 
-## Guardian (foundation)
-`GET /v1/guardian` (server, read-only, no schema change) and
-`GuardianFinding.forDevice` (app) turn real data into findings. Each finding
-records its **certainty**:
+## Guardian v1
+Guardian is `GET /v1/guardian` on the server (Cloud automations) plus
+`GuardianFinding.forDevice` in the app (on-device automations). The two are
+never mixed.
 
-| Finding | Source | Certainty |
+It's read-only. Findings are derived on request from authoritative data and
+never stored, so a fixed problem disappears on the next check. Every finding has
+`kind, severity, certainty, title, why, body, evidence, detectedAt, action`
+(`open_automation` or `reconnect`, with the real id).
+
+| Kind | Rule (evidence) | Certainty |
 |---|---|---|
-| Paused after repeated failures | automation `status = error` + stored reason | certain |
-| Repeated failures (3 in a row) / recent failures (7 days) | execution rows | certain |
-| Connection needs reconnect / has a problem | connection `status`, linked to the automations that reference it | certain |
-| Scheduled run looks overdue (> 15 min past `next_run_at`) | automation row | unusual |
-| Looks unusually quiet (event-driven, at least 5 runs, silent > 3× its median gap and > 1 day) | execution rows | unusual |
+| `repeated_failures` / `paused_after_failures` | Last **3** finished runs failed (skips ignored), or the engine paused it (`status = error`) | certain |
+| `connection_attention` | Connection status is not `connected` and not `disconnected` (e.g. `needs_reauth`, `error`). Critical when an active automation uses it. | certain |
+| `missed_schedule` | A **tracked** slot (`schedule_slots`) in the last 7 days whose run is absent (`never`, after a 5-minute settle) or recorded by the engine as `Missed:` (server offline) | certain |
+| `schedule_overdue` | Current `next_run_at` more than 15 minutes in the past and not yet processed | unusual |
+| `recent_failures` | A failure in the last 7 days, or the latest run failed | certain |
+| `looks_inactive` | Active, event-driven (no schedule), at least **5** runs, silent for more than **max(1 day, 3 × its own median gap)** | unusual |
 
-"Unusual" findings are always worded as "looks …" in the UI, with "This may be
-expected". Cloud findings come only from the server, and on-device findings only
-from this phone; they are never mixed. Home shows the GUARDIAN panel only when
-at least one automation is active. If Cloud can't be checked, it says so instead
-of reporting "all clear".
+Order: critical failures → connections → missed schedules → other failures →
+inactivity. Home shows at most 3 findings, plus "+ N more".
+
+### Expected-run tracking
+`schedule_slots(automation_id, workspace_id, slot, consumed_at)` is written
+only by `CloudEngine.tick` when it picks up a due slot. Each slot's outcome
+comes from the run with `scheduled_for = slot`:
+
+| Run for the slot | Outcome |
+|---|---|
+| success | ran |
+| failed / partial | **failed** (a failure, never "missed") |
+| skipped (condition, limit…) | skipped |
+| skipped with `Missed:` | missed (server offline) |
+| none, more than 5 minutes after consumption | never happened → missed |
+
+**Limitation:** tracking starts when this version is deployed. Slots from
+before that are never reconstructed, so older history can't produce
+missed-schedule findings.
 
 ## Not yet (future passes)
 - A numeric score. This needs server-side lifetime aggregates and connection
