@@ -89,8 +89,10 @@ class IntegrationRegistry {
   /// Services the app knows about but has no implementation for. These are
   /// listed as `Not available` rather than being hidden or faked (spec §17).
   static const List<PlannedIntegration> planned = <PlannedIntegration>[
-    PlannedIntegration('email', 'Email', 'SMTP / IMAP sending and reading'),
-    PlannedIntegration('telegram', 'Telegram', 'Bot API messaging'),
+    PlannedIntegration('email', 'Email / Gmail', 'Sending and reading email',
+        cloudNote: 'Gmail works in Cloud automations once the Cloud server has Google sign-in configured.'),
+    PlannedIntegration('telegram', 'Telegram', 'Bot API messaging',
+        cloudNote: 'Available in Cloud automations: connect your bot in Autometa Cloud.'),
     PlannedIntegration('discord', 'Discord', 'Webhook posting'),
     PlannedIntegration('slack', 'Slack', 'Incoming webhooks'),
     PlannedIntegration('google_calendar', 'Google Calendar', 'Event creation and lookup'),
@@ -106,9 +108,16 @@ class IntegrationRegistry {
 /// A future integration, listed in the UI as explicitly not available.
 @immutable
 class PlannedIntegration {
-  const PlannedIntegration(this.id, this.displayName, this.blurb);
+  const PlannedIntegration(this.id, this.displayName, this.blurb, {this.cloudNote});
 
   final String id;
   final String displayName;
   final String blurb;
+
+  /// Set when the service already works in Cloud automations (server side)
+  /// but not on this device, so the UI can say "Cloud only" instead of
+  /// implying it doesn't exist. Null = coming soon everywhere.
+  final String? cloudNote;
+
+  bool get availableInCloud => cloudNote != null;
 }

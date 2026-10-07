@@ -40,16 +40,49 @@ class ConnectionsScreen extends StatelessWidget {
             const SizedBox(height: AutometaSpacing.md),
           ],
           const SizedBox(height: AutometaSpacing.lg),
-          const SectionLabel('Planned'),
-          for (final PlannedIntegration p in m.planned)
-            ListTile(
-              leading: const Icon(Icons.radio_button_unchecked, size: 18),
-              title: Text(p.displayName),
-              subtitle: Text(p.blurb),
-              trailing: const StatusPill(label: 'NOT AVAILABLE', color: AutometaColors.neutral),
-            ),
+          const SectionLabel('Cloud only'),
+          for (final PlannedIntegration p in m.planned.where((PlannedIntegration p) => p.availableInCloud))
+            _PlannedTile(p),
+          const SizedBox(height: AutometaSpacing.md),
+          const SectionLabel('Coming soon'),
+          for (final PlannedIntegration p in m.planned.where((PlannedIntegration p) => !p.availableInCloud))
+            _PlannedTile(p),
         ],
       ),
+    );
+  }
+}
+
+/// Not clickable: there is nothing to open on this device yet.
+class _PlannedTile extends StatelessWidget {
+  const _PlannedTile(this.p);
+  final PlannedIntegration p;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme t = Theme.of(context).textTheme;
+    final bool cloud = p.availableInCloud;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AutometaSpacing.sm),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(cloud ? Icons.cloud_outlined : Icons.schedule, size: 18,
+              color: cloud ? AutometaColors.accent : AutometaColors.neutral),
+        ),
+        const SizedBox(width: AutometaSpacing.md),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+            Text(p.displayName, style: t.titleSmall),
+            Text(cloud ? p.cloudNote! : p.blurb, style: t.bodySmall),
+          ]),
+        ),
+        const SizedBox(width: AutometaSpacing.sm),
+        StatusPill(
+          label: cloud ? 'CLOUD ONLY' : 'COMING SOON',
+          color: cloud ? AutometaColors.accent : AutometaColors.neutral,
+        ),
+      ]),
     );
   }
 }
