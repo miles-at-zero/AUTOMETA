@@ -119,6 +119,19 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('no history yet: says "not enough history", never "nothing needs attention"', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(360 * 3, 1600 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: AutometaTheme.dark,
+        home: Scaffold(body: GuardianFindingsView(findings: const <GuardianFinding>[], notEnoughHistory: true, onOpen: (_) {})),
+      ));
+      expect(find.text('Not enough history yet. Guardian checks automations once they have run.'), findsOneWidget);
+      expect(find.text('Nothing needs your attention right now.'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('Cloud not checked: says so instead of "all clear"', (WidgetTester tester) async {
       await pump(tester, const <GuardianFinding>[], cloudGap: true);
       expect(find.text('Nothing needs attention on this device.'), findsOneWidget);
@@ -168,6 +181,22 @@ void main() {
             automationName: 'A very long automation name that keeps going and going for testing wrap', actionLabel: 'View automation'),
       ]);
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Guardian: history availability (unknown is not healthy)', () {
+    test('device: only skipped or no runs -> no history; a finished run -> history', () {
+      expect(GuardianFinding.deviceHasHistory(<Workflow>[wf('a')], <ExecutionRecord>[], now), isFalse);
+      expect(GuardianFinding.deviceHasHistory(<Workflow>[wf('a')], <ExecutionRecord>[rec('a', 1, ExecutionStatus.skipped)], now), isFalse);
+      expect(GuardianFinding.deviceHasHistory(<Workflow>[wf('a')], <ExecutionRecord>[rec('a', 1, ExecutionStatus.success)], now), isTrue);
+      expect(GuardianFinding.deviceHasHistory(<Workflow>[wf('c', cloud: true)], <ExecutionRecord>[rec('c', 1, ExecutionStatus.success)], now), isFalse,
+          reason: 'Cloud automations are never judged from device records');
+    });
+
+    test('cloud: judged only when the server judged something', () {
+      expect(GuardianFinding.cloudHasHistory(<String, dynamic>{}), isFalse);
+      expect(GuardianFinding.cloudHasHistory(<String, dynamic>{'summary': <String, dynamic>{'unknown': 3, 'inactive': 1}}), isFalse);
+      expect(GuardianFinding.cloudHasHistory(<String, dynamic>{'summary': <String, dynamic>{'healthy': 1}}), isTrue);
     });
   });
 

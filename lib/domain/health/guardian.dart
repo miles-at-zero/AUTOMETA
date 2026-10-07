@@ -119,6 +119,30 @@ class GuardianFinding {
     return out;
   }
 
+  /// True when at least one active on-device automation has a finished,
+  /// non-skipped run to judge (health is not "not enough history").
+  static bool deviceHasHistory(Iterable<Workflow> workflows, Iterable<ExecutionRecord> records, DateTime now) {
+    for (final Workflow w in workflows) {
+      if (w.isCloud || !w.enabled) continue;
+      final AutomationHealth h = AutomationHealth.evaluate(
+        enabled: true,
+        runs: records.where((ExecutionRecord r) => r.workflowId == w.id).map(RunSample.fromRecord).whereType<RunSample>(),
+        now: now,
+      );
+      if (h.state != HealthState.unknown) return true;
+    }
+    return false;
+  }
+
+  /// True when the server judged at least one Cloud automation from real runs
+  /// (`summary.healthy + attention + critical > 0`).
+  static bool cloudHasHistory(Map<String, dynamic> report) {
+    final Object? s = report['summary'];
+    if (s is! Map) return false;
+    int n(String k) => s[k] is num ? (s[k] as num).toInt() : 0;
+    return n('healthy') + n('attention') + n('critical') > 0;
+  }
+
   /// Same order as the server: critical failures, connections, missed
   /// schedules, other failures, inactivity. Stable for equal ranks.
   static const Map<String, int> _rank = <String, int>{

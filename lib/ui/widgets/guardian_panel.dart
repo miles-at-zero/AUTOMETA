@@ -31,11 +31,15 @@ class GuardianPanel extends StatefulWidget {
 }
 
 class _Report {
-  const _Report(this.findings, {required this.cloudGap});
+  const _Report(this.findings, {required this.cloudGap, required this.notEnoughHistory});
   final List<GuardianFinding> findings;
 
   /// Active Cloud automations exist but Cloud couldn't be checked.
   final bool cloudGap;
+
+  /// Nothing checked so far has any finished run to judge. "No findings"
+  /// would then wrongly read as "all fine".
+  final bool notEnoughHistory;
 }
 
 class _GuardianPanelState extends State<GuardianPanel> {
@@ -53,21 +57,29 @@ class _GuardianPanelState extends State<GuardianPanel> {
     final CloudSession cloud = context.read<CloudSession>();
     final List<Workflow> workflows = List<Workflow>.of(state.workflows);
     final List<ExecutionRecord> local = await services.executions.recent(limit: 300);
-    final List<GuardianFinding> found = GuardianFinding.forDevice(workflows, local, DateTime.now());
+    final DateTime now = DateTime.now();
+    final List<GuardianFinding> found = GuardianFinding.forDevice(workflows, local, now);
+    bool judged = GuardianFinding.deviceHasHistory(workflows, local, now);
     final bool cloudRelevant = workflows.any((Workflow w) => w.isCloud && w.enabled);
     bool cloudChecked = false;
     if (cloud.signedIn) {
       try {
-        found.addAll(GuardianFinding.fromCloudReport(await cloud.guardian()));
+        final Map<String, dynamic> report = await cloud.guardian();
+        found.addAll(GuardianFinding.fromCloudReport(report));
+        judged = judged || GuardianFinding.cloudHasHistory(report);
         cloudChecked = true;
       } catch (_) {
         cloudChecked = false; // offline / older server: say so, never "all clear"
       }
     }
-    return _Report(GuardianFinding.sorted(found), cloudGap: cloudRelevant && !cloudChecked);
+    return _Report(
+      GuardianFinding.sorted(found),
+      cloudGap: cloudRelevant && !cloudChecked,
+      notEnoughHistory: found.isEmpty && !judged,
+    );
   }
 
-  void _open(GuardianFinding f) {
+  Future<void> _open(GuardianFinding f) async {
     final List<Workflow> ws = context.read<AppState>().workflows;
     Widget? target;
     if (f.connectionId != null) {
@@ -79,7 +91,14 @@ class _GuardianPanelState extends State<GuardianPanel> {
           );
       if (w != null) target = AutomationDetailScreen(workflow: w);
     }
-    if (target != null) Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => target!));
+    if (target == null) {
+      // Cloud automation not synced to this phone yet: say so, no dead tap.
+      showToast(context, 'This automation isn\'t on this phone yet. Pull down on Home to refresh, then try again.');
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => target!));
+    // Re-check on return so a fixed problem doesn't linger as a stale finding.
+    if (mounted) setState(() => _report = _load());
   }
 
   @override
@@ -96,6 +115,7 @@ class _GuardianPanelState extends State<GuardianPanel> {
           child: GuardianFindingsView(
             findings: r.findings,
             cloudGap: r.cloudGap,
+            notEnoughHistory: r.notEnoughHistory,
             onOpen: _open,
             onRefresh: () => setState(() => _report = _load()),
           ),
@@ -111,6 +131,7 @@ class GuardianFindingsView extends StatelessWidget {
     required this.findings,
     required this.onOpen,
     this.cloudGap = false,
+    this.notEnoughHistory = false,
     this.onRefresh,
     this.limit = kGuardianHomeLimit,
     super.key,
@@ -119,6 +140,9 @@ class GuardianFindingsView extends StatelessWidget {
   /// Already ordered (see [GuardianFinding.sorted]).
   final List<GuardianFinding> findings;
   final bool cloudGap;
+
+  /// No active automation has a finished run yet: say so instead of "all fine".
+  final bool notEnoughHistory;
   final ValueChanged<GuardianFinding> onOpen;
   final VoidCallback? onRefresh;
   final int limit;
@@ -144,9 +168,11 @@ class GuardianFindingsView extends StatelessWidget {
             ),
         ]),
         Text(
-          fs.isEmpty
-              ? (cloudGap ? 'Nothing needs attention on this device.' : 'Nothing needs your attention right now.')
-              : '${fs.length} ${fs.length == 1 ? 'thing needs' : 'things need'} your attention',
+          fs.isNotEmpty
+              ? '${fs.length} ${fs.length == 1 ? 'thing needs' : 'things need'} your attention'
+              : notEnoughHistory
+                  ? 'Not enough history yet. Guardian checks automations once they have run.'
+                  : (cloudGap ? 'Nothing needs attention on this device.' : 'Nothing needs your attention right now.'),
           key: const Key('guardian.headline'),
           style: t.titleMedium,
         ),
