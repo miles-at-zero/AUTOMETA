@@ -36,7 +36,7 @@ class SectionLabel extends StatelessWidget {
       );
 }
 
-/// The AUTOMETA card: rounded, hairline border, restrained glow.
+/// The AUTOMETA card: rounded, hairline border, and an in-bounds state tint.
 class Panel extends StatelessWidget {
   const Panel({
     required this.child,
@@ -58,40 +58,45 @@ class Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AutometaSemanticColors colors = AutometaSemanticColors.of(context);
-    final Widget content = DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surfaceRaised,
-        borderRadius: BorderRadius.circular(AutometaSpacing.radiusLg),
-        border: Border.all(color: borderColor ?? colors.border),
-        boxShadow: glow == null
-            ? null
-            : AutometaShadows.card(glow!, opacity: 0.08),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(AutometaSpacing.radiusLg),
-        child: Stack(
-          children: <Widget>[
-            if (accentLeft)
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                child: Container(width: 3, color: glow ?? AutometaColors.accent),
-              ),
-            Padding(padding: padding, child: child),
-          ],
-        ),
-      ),
+    final BorderRadius radius = BorderRadius.circular(AutometaSpacing.radiusLg);
+    final Color fill = glow == null
+        ? colors.surfaceRaised
+        : Color.alphaBlend(glow!.withValues(alpha: 0.035), colors.surfaceRaised);
+    final Color stroke = borderColor ??
+        (glow == null ? colors.border : glow!.withValues(alpha: 0.38));
+    final RoundedRectangleBorder shape = RoundedRectangleBorder(
+      borderRadius: radius,
+      side: BorderSide(color: stroke),
+    );
+    final Widget content = Stack(
+      children: <Widget>[
+        if (accentLeft)
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Container(width: 3, color: glow ?? AutometaColors.accent),
+          ),
+        Padding(padding: padding, child: child),
+      ],
     );
 
-    if (onTap == null) return content;
+    // A card's old BoxShadow was painted outside its layout and Material bounds
+    // (40dp blur), so neighboring cards visually inherited the same glow. The
+    // selection treatment is now an in-bounds surface tint/border, and Material
+    // owns both clipping and InkWell's hit/splash region. No shadows can bleed
+    // into the card above or below; the layout size stays independent of state.
     return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AutometaSpacing.radiusLg),
-        child: content,
-      ),
+      color: fill,
+      shape: shape,
+      clipBehavior: Clip.antiAlias,
+      child: onTap == null
+          ? content
+          : InkWell(
+              onTap: onTap,
+              customBorder: shape,
+              child: content,
+            ),
     );
   }
 }

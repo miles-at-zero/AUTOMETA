@@ -141,9 +141,11 @@ class CloudSession extends ChangeNotifier {
     await _start(u, await BusinessApi(baseUrl: u).post('/v1/auth/login', <String, dynamic>{'email': email.trim(), 'password': password}));
   }
 
-  Future<String> forgotPassword(String url, String email) async {
-    final Json r = await BusinessApi(baseUrl: _checkedUrl(url)).post('/v1/auth/forgot', <String, dynamic>{'email': email.trim()});
-    return str(r['message']);
+  /// Requests a reset without returning any server-supplied account or mail
+  /// delivery details to the UI. The server always answers with one generic
+  /// success message for eligible requests.
+  Future<void> forgotPassword(String url, String email) async {
+    await BusinessApi(baseUrl: _checkedUrl(url)).post('/v1/auth/forgot', <String, dynamic>{'email': email.trim()});
   }
 
   Future<void> signOut() async {

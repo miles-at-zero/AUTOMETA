@@ -77,20 +77,3 @@ class AutometaSpacing {
     return lg;
   }
 }
-
-class AutometaShadows {
-  const AutometaShadows._();
-
-  static List<BoxShadow> card(Color glowColor, {double opacity = 0.10}) => <BoxShadow>[
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.28),
-          blurRadius: 24,
-          offset: const Offset(0, 8),
-        ),
-        BoxShadow(
-          color: glowColor.withValues(alpha: opacity),
-          blurRadius: 40,
-          offset: const Offset(0, 0),
-        ),
-      ];
-}
