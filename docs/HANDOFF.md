@@ -20,4 +20,5 @@
 3. **Release & Build**:
    - Release flavor: `standard`.
    - CI workflow defined in `.github/workflows/flutter.yml`.
-   - Artifact: `autometa.apk` generated via GitHub Actions workflow and attached to releases.
+   - Artifact: `autometa.apk` and `autometa.apk.sha256` generated via GitHub Actions workflow and attached to releases.
+   - Release notes and commit comment include the SHA-256 checksum of the built APK.
