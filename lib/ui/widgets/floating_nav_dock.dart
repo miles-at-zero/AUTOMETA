@@ -117,6 +117,10 @@ class FloatingNavDock extends StatelessWidget {
       button: true,
       selected: selected,
       label: d.semanticLabel ?? d.label,
+      // excludeSemantics drops the InkWell's own semantics, so this node has
+      // to declare the action itself or a screen reader sees a button that
+      // cannot be activated.
+      onTap: () => onSelect(i),
       excludeSemantics: true,
       child: InkWell(
         key: Key('dock.item.$i'),
@@ -173,6 +177,7 @@ class FloatingNavDock extends StatelessWidget {
       label: hasUnread
           ? 'Notifications, $unreadCount unread'
           : 'Notifications, none unread',
+      onTap: onOpenNotifications,
       excludeSemantics: true,
       child: InkWell(
         key: const Key('dock.notifications'),

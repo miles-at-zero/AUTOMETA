@@ -1,6 +1,5 @@
 import '../domain/models/execution.dart';
 import '../domain/models/execution_status.dart';
-import '../domain/models/step.dart';
 
 /// Status text that never claims more than the app knows (spec §40).
 ///

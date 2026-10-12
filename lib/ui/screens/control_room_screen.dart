@@ -913,6 +913,7 @@ class _NotificationBell extends StatelessWidget {
     return Semantics(
       button: true,
       label: hasUnread ? 'Notifications, $unreadCount unread' : 'Notifications, none unread',
+      onTap: onOpen,
       excludeSemantics: true,
       child: InkWell(
         key: const Key('controlRoom.bell'),

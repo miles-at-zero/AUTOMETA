@@ -330,6 +330,7 @@ class _FilterChips extends StatelessWidget {
       button: true,
       selected: selected,
       label: label,
+      onTap: onTap,
       excludeSemantics: true,
       child: InkWell(
         key: key,
