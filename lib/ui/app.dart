@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,22 +7,25 @@ import '../app_services.dart';
 import '../cloud/cloud_session.dart';
 import '../cloud/push_routing.dart';
 import '../core/theme/autometa_theme.dart';
-import '../core/theme/design_tokens.dart';
 import '../services/settings/settings_service.dart';
 import '../state/app_state.dart';
 import '../domain/capabilities/execution_capabilities.dart';
 import '../domain/models/workflow.dart';
+import '../domain/notifications/notification_center.dart';
 import '../domain/onboarding/onboarding_state.dart';
 import '../services/templates/template_gallery.dart';
+import 'guardian_scope.dart';
 import 'screens/activity_screen.dart';
 import 'screens/builder_screen.dart';
 import 'screens/automations_screen.dart';
 import 'screens/cloud_account_screen.dart';
 import 'screens/cloud_execution_screen.dart';
 import 'screens/connections_hub_screen.dart';
+import 'screens/control_room_screen.dart';
 import 'screens/create_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/notification_center_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'widgets/floating_nav_dock.dart';
 
 /// Root widget.
 class AutometaApp extends StatefulWidget {
@@ -84,9 +89,16 @@ class ThemeController extends InheritedWidget {
   bool updateShouldNotify(ThemeController oldWidget) => oldWidget.mode != mode;
 }
 
-/// Bottom-navigation shell: Home · Automations · Activity · Connections, with
-/// a "New automation" FAB on Home and Automations. Settings opens from the
-/// Connections app bar.
+/// Navigation shell: Control Room · Automations · Activity · Connections.
+///
+/// The destinations live in a floating capsule dock; the Guardian Notification
+/// Center opens from the bell at the end of the same capsule. A "New
+/// automation" FAB sits on the Control Room and Automations. Settings opens
+/// from the Connections app bar.
+///
+/// One Guardian pass runs here ([GuardianInboxController]) and is shared with
+/// everything below through [GuardianScope], so the dock badge, the dashboard
+/// panel and the inbox can never disagree.
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -108,6 +120,10 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _index = 0;
 
+  /// The single Guardian pass shared by the dock badge, the Control Room and
+  /// the Notification Center.
+  final GuardianInboxController _inbox = GuardianInboxController();
+
   @override
   void initState() {
     super.initState();
@@ -120,8 +136,29 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       // The navigator now exists: consume a tap that launched the app.
       _navigation?.attach(_open);
       context.read<CloudSession>().checkAlerts();
+      unawaited(_loadInbox());
       _openOnboardingIntent();
     });
+  }
+
+  /// Runs the shared Guardian pass and folds it into the inbox.
+  Future<void> _loadInbox() async {
+    final SettingsService settings = context.read<SettingsService>();
+    await _inbox.load(context, settings);
+    if (mounted) setState(() {});
+  }
+
+  /// Applies a user action (read / dismiss) from anywhere below the shell.
+  void _updateInbox(NotificationCenter next) {
+    setState(() => _inbox.center = next);
+    unawaited(_inbox.persist(context.read<SettingsService>()));
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const NotificationCenterScreen()),
+    );
+    if (mounted) await _loadInbox();
   }
 
   /// Where the user chose to go at the end of onboarding: the real create
@@ -170,7 +207,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       case OpenReconnect(:final String? connectionId):
         nav.push(MaterialPageRoute<void>(builder: (_) => CloudAccountScreen(reconnectConnectionId: connectionId)));
       case OpenNotifications():
-        select(AppShell.activityTab);
+        unawaited(_openNotifications());
     }
   }
 
@@ -189,120 +226,58 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       context.read<AppState>().refresh();
       context.read<SettingsService>().refreshPlatformState();
       context.read<CloudSession>().checkAlerts();
+      unawaited(_loadInbox());
     }
   }
 
   void select(int index) => setState(() => _index = index);
 
   static const List<Widget> _pages = <Widget>[
-    HomeScreen(),
+    ControlRoomScreen(),
     AutomationsScreen(),
     ActivityScreen(),
     ConnectionsHubScreen(),
   ];
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        body: IndexedStack(index: _index, children: _pages),
-        floatingActionButton: _index <= 1
-            ? FloatingActionButton.extended(
-                heroTag: 'new-automation',
-                onPressed: () => AppShell.newAutomation(context),
-                icon: const Icon(Icons.add),
-                label: const Text('New automation'),
-              )
-            : null,
-        bottomNavigationBar: _AutometaNavBar(index: _index, onSelect: select),
-      );
-}
-
-
-/// Bottom navigation whose labels always fit: each slot gets an equal share
-/// of the width and its label scales down (never wraps or overflows), even
-/// on narrow phones or with large system font sizes.
-class _AutometaNavBar extends StatelessWidget {
-  const _AutometaNavBar({required this.index, required this.onSelect});
-
-  final int index;
-  final ValueChanged<int> onSelect;
-
-  static const List<(IconData, IconData, String)> _items = <(IconData, IconData, String)>[
-    (Icons.home_outlined, Icons.home, 'Home'),
-    (Icons.account_tree_outlined, Icons.account_tree, 'Automations'),
-    (Icons.history, Icons.history, 'Activity'),
-    (Icons.hub_outlined, Icons.hub, 'Connections'),
+  /// The floating capsule dock's destinations.
+  static const List<NavDockDestination> _destinations = <NavDockDestination>[
+    NavDockDestination(
+      icon: Icons.dashboard_outlined,
+      selectedIcon: Icons.dashboard,
+      label: 'Control Room',
+      semanticLabel: 'Control Room, dashboard',
+    ),
+    NavDockDestination(
+      icon: Icons.account_tree_outlined,
+      selectedIcon: Icons.account_tree,
+      label: 'Automations',
+    ),
+    NavDockDestination(icon: Icons.history, selectedIcon: Icons.history, label: 'Activity'),
+    NavDockDestination(icon: Icons.hub_outlined, selectedIcon: Icons.hub, label: 'Connections'),
   ];
 
   @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final MediaQueryData mq = MediaQuery.of(context);
-    return MediaQuery(
-      // Cap text scaling inside the bar; content screens still honour it fully.
-      data: mq.copyWith(textScaler: mq.textScaler.clamp(maxScaleFactor: 1.15)),
-      child: Material(
-        color: theme.colorScheme.surface,
-        elevation: 3,
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: 68,
-            child: Row(
-              children: <Widget>[
-                for (int i = 0; i < _items.length; i++)
-                  Expanded(child: _slot(context, i)),
-              ],
-            ),
+  Widget build(BuildContext context) => GuardianScope(
+        controller: _inbox,
+        onChanged: _updateInbox,
+        onRefresh: _loadInbox,
+        child: Scaffold(
+          body: IndexedStack(index: _index, children: _pages),
+          floatingActionButton: _index <= 1
+              ? FloatingActionButton.extended(
+                  heroTag: 'new-automation',
+                  onPressed: () => AppShell.newAutomation(context),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New automation'),
+                )
+              : null,
+          bottomNavigationBar: FloatingNavDock(
+            index: _index,
+            onSelect: select,
+            destinations: _destinations,
+            unreadCount: _inbox.center.unreadCount,
+            onOpenNotifications: _openNotifications,
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _slot(BuildContext context, int i) {
-    final (IconData icon, IconData selectedIcon, String label) = _items[i];
-    final bool selected = i == index;
-    final Color color = selected ? AutometaColors.accent : Theme.of(context).colorScheme.onSurfaceVariant;
-    final Widget glyph = AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: selected ? AutometaColors.accent.withValues(alpha: 0.16) : Colors.transparent,
-            ),
-            child: Icon(selected ? selectedIcon : icon, size: 22, color: color),
-          );
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: label,
-      excludeSemantics: true,
-      child: InkWell(
-        onTap: () => onSelect(i),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              glyph,
-              const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  softWrap: false,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                    color: color,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+      );
 }

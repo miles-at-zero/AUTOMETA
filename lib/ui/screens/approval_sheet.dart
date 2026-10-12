@@ -6,7 +6,7 @@ import '../../domain/engine/approval_request.dart';
 import '../../domain/models/execution.dart';
 import '../../state/app_state.dart';
 import '../widgets/autometa_widgets.dart';
-import 'home_screen.dart';
+import '../status_label.dart';
 import '../widgets/message_ready_card.dart';
 
 /// "AUTOMETA NEEDS APPROVAL" (spec §23).

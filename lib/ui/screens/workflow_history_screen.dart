@@ -20,7 +20,7 @@ import 'builder_screen.dart';
 import 'cloud_account_screen.dart';
 import 'cloud_execution_screen.dart';
 import 'execution_detail_screen.dart';
-import 'home_screen.dart';
+import '../status_label.dart';
 
 /// Automation detail: execution mode (+ migration), WHEN / IF / DO, status,
 /// next run, history from wherever it ran, and errors.

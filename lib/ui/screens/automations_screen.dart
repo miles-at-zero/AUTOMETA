@@ -15,7 +15,7 @@ import '../widgets/execution_widgets.dart';
 import 'cloud_account_screen.dart';
 import 'builder_screen.dart';
 import 'dry_run_sheet.dart';
-import 'home_screen.dart';
+import '../status_label.dart';
 import 'workflow_history_screen.dart';
 
 class AutomationsScreen extends StatelessWidget {
