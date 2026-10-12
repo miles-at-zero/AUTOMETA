@@ -3,6 +3,7 @@
 import 'package:autometa/core/theme/autometa_theme.dart';
 import 'package:autometa/ui/widgets/floating_nav_dock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const List<NavDockDestination> destinations = <NavDockDestination>[

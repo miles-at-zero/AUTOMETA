@@ -385,6 +385,10 @@ class ControlRoomView extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextTheme t = Theme.of(context).textTheme;
     final AutometaSemanticColors colors = AutometaSemanticColors.of(context);
+    // Widest a chip may ever be. Chips are hard-capped rather than left to
+    // intrinsic width, so a long status (or 1.8x text) can't overflow.
+    final double available =
+        MediaQuery.sizeOf(context).width - AutometaSpacing.page(context) * 2;
     final _RoomState room = _RoomState.of(
       paused: paused,
       criticalCount: criticalCount,
@@ -403,11 +407,26 @@ class ControlRoomView extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               // ---- header -------------------------------------------------
+              // Explicit glyph + flexible wordmark + fixed bell. A
+              // mainAxisSize.min wordmark pushes the bell off a 320dp screen
+              // once the system text scale reaches ~1.8x.
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: <Widget>[
-                  const BrandMark(size: 24),
-                  const Spacer(),
+                  const AutometaGlyph(size: 24),
+                  const SizedBox(width: AutometaSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      'AUTOMETA',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.titleLarge?.copyWith(
+                        letterSpacing: 3.2,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AutometaSpacing.sm),
                   _NotificationBell(
                     unreadCount: unreadCount,
                     onOpen: onOpenNotifications,
@@ -605,7 +624,11 @@ class ControlRoomView extends StatelessWidget {
                           dense: true,
                           title: Text(r.name),
                           subtitle: Text(r.when),
-                          trailing: StatusPill(label: r.statusLabel, color: r.color),
+                          trailing: _StatusChip(
+                            label: r.statusLabel,
+                            color: r.color,
+                            maxWidth: available * 0.45,
+                          ),
                           onTap: onOpenExecution == null
                               ? null
                               : () => onOpenExecution!(r),
@@ -625,12 +648,12 @@ class ControlRoomView extends StatelessWidget {
                   runSpacing: AutometaSpacing.sm,
                   children: <Widget>[
                     for (final ControlRoomConnection c in connections)
-                      StatusPill(
+                      _StatusChip(
                         key: Key('controlRoom.connection.${c.name}'),
                         label: '${c.name} · ${c.detail}',
                         color: c.ok ? AutometaColors.success : AutometaColors.neutral,
                         icon: Icons.circle,
-                        filled: c.ok,
+                        maxWidth: available,
                       ),
                   ],
                 ),
@@ -818,6 +841,62 @@ class _Metric extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      );
+}
+
+/// A pill that cannot overflow: it is hard-capped at [maxWidth] and its label
+/// ellipsises instead of pushing past the screen edge.
+///
+/// The shared [StatusPill] sizes to its intrinsic width, which is right for
+/// short fixed labels but overflows a 320dp screen once the system text scale
+/// reaches ~1.8x and the label is data-driven (a connection state, or
+/// "Handed to WhatsApp — you tap Send").
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.label,
+    required this.color,
+    required this.maxWidth,
+    this.icon,
+    super.key,
+  });
+
+  final String label;
+  final Color color;
+  final double maxWidth;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withValues(alpha: 0.45)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (icon != null) ...<Widget>[
+                Icon(icon, size: 12, color: color),
+                const SizedBox(width: 4),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: color, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
         ),
       );
 }

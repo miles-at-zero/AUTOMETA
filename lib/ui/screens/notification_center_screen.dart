@@ -234,17 +234,20 @@ class NotificationCenterView extends StatelessWidget {
               ] else ...<Widget>[
                 const SizedBox(height: AutometaSpacing.lg),
                 // ---- filter + mark all read ------------------------------
-                Row(
+                // A Wrap, not a Row: at 1.8x text "Mark all read" is wider
+                // than the space left beside the chips, and a Row would
+                // overflow instead of moving it to the next line.
+                Wrap(
+                  spacing: AutometaSpacing.md,
+                  runSpacing: AutometaSpacing.sm,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: <Widget>[
-                    Expanded(
-                      child: _FilterChips(
-                        filter: filter,
-                        allCount: center.countFor(NotificationFilter.all),
-                        unreadCount: center.countFor(NotificationFilter.unread),
-                        onChanged: onFilterChanged,
-                      ),
+                    _FilterChips(
+                      filter: filter,
+                      allCount: center.countFor(NotificationFilter.all),
+                      unreadCount: center.countFor(NotificationFilter.unread),
+                      onChanged: onFilterChanged,
                     ),
-                    const SizedBox(width: AutometaSpacing.sm),
                     TextButton(
                       key: const Key('nc.markAllRead'),
                       onPressed: unread == 0 ? null : onMarkAllRead,

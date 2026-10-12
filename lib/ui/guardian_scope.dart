@@ -26,22 +26,33 @@ class GuardianInboxController {
   /// Runs a pass and folds it into the inbox. [context] is only touched
   /// synchronously, before any await.
   Future<void> load(BuildContext context, SettingsService settings) async {
-    final Future<GuardianSnapshot> pending = loadGuardianSnapshot(context);
-    final String? read = await settings.repository.get(NotificationStore.readKey);
-    final String? dismissed = await settings.repository.get(NotificationStore.dismissedKey);
-    final GuardianSnapshot result = await pending;
-    snapshot = result;
-    center = NotificationStore.restore(read: read, dismissed: dismissed)
-        .merge(result.findings, now: DateTime.now());
-    loaded = true;
+    try {
+      final Future<GuardianSnapshot> pending = loadGuardianSnapshot(context);
+      final String? read = await settings.repository.get(NotificationStore.readKey);
+      final String? dismissed =
+          await settings.repository.get(NotificationStore.dismissedKey);
+      final GuardianSnapshot result = await pending;
+      snapshot = result;
+      center = NotificationStore.restore(read: read, dismissed: dismissed)
+          .merge(result.findings, now: DateTime.now());
+      loaded = true;
+    } catch (_) {
+      // The database can be gone (app torn down mid-read) or Cloud unreachable.
+      // A missing unread badge must never take the app down, and an in-flight
+      // read that outlives a widget must not surface as an unhandled error.
+    }
   }
 
   /// Writes only what the user owns; findings are always re-derived live.
   Future<void> persist(SettingsService settings) async {
-    await settings.repository
-        .set(NotificationStore.readKey, NotificationStore.encodeRead(center));
-    await settings.repository
-        .set(NotificationStore.dismissedKey, NotificationStore.encodeDismissed(center));
+    try {
+      await settings.repository
+          .set(NotificationStore.readKey, NotificationStore.encodeRead(center));
+      await settings.repository
+          .set(NotificationStore.dismissedKey, NotificationStore.encodeDismissed(center));
+    } catch (_) {
+      // Losing a "read" mark is a nuisance, not a failure worth surfacing.
+    }
   }
 }
 

@@ -19,15 +19,18 @@ class NotificationStore {
   static const String _field = '\x1F';
 
   /// Strips the separators so a workflow name or an error message can never
-  /// corrupt the encoding. Content is only compared for equality, so a
-  /// substitution changes nothing the user can see.
+  /// corrupt the encoding.
+  ///
+  /// Deliberately does NOT strip NUL: [NotificationEntry.signature] joins the
+  /// title and body with NUL, and a dismissed row is recognised by comparing
+  /// that signature. Sanitising it here would store a signature that can never
+  /// match the live one, and dismissal would silently stop working.
+  ///
+  /// A signature containing a real separator therefore degrades safely: it
+  /// won't match after a round-trip, so the row simply comes back rather than
+  /// staying hidden.
   static String _safe(String value) =>
-      value
-          .replaceAll(_rec, ' ')
-          .replaceAll(_field, ' ')
-          .replaceAll('\n', ' ')
-          .replaceAll('\x00', ' ')
-          .trim();
+      value.replaceAll(_rec, ' ').replaceAll(_field, ' ').replaceAll('\n', ' ').trim();
 
   static String encodeRead(NotificationCenter center) =>
       center.readKeys.map(_safe).join(_rec);
