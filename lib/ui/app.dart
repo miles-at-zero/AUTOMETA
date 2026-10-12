@@ -136,9 +136,25 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       // The navigator now exists: consume a tap that launched the app.
       _navigation?.attach(_open);
       context.read<CloudSession>().checkAlerts();
-      unawaited(_loadInbox());
       _openOnboardingIntent();
     });
+  }
+
+  /// True once the first Guardian pass has been kicked off.
+  bool _inboxRequested = false;
+
+  /// Runs the first pass only after the app has finished its own initial
+  /// database load. Competing with that load for the SQLite lock makes
+  /// sqflite's busy-wait arm a Timer, which a widget test can then catch as a
+  /// pending timer it never got to run.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final AppState state = context.watch<AppState>();
+    if (!_inboxRequested && !state.isLoading) {
+      _inboxRequested = true;
+      unawaited(_loadInbox());
+    }
   }
 
   /// Runs the shared Guardian pass and folds it into the inbox.

@@ -123,11 +123,12 @@ void main() {
       await pumpDock(tester, index: 0, width: 360, onOpenNotifications: () {});
       for (int i = 0; i < destinations.length; i++) {
         final SemanticsNode node = tester.getSemantics(find.byKey(Key('dock.item.$i')));
-        expect(node.hasAction(SemanticsAction.tap), isTrue,
+        expect(node.getSemanticsData().actions & SemanticsAction.tap.index, isNonZero,
             reason: 'destination $i must be tappable by a screen reader');
       }
-      final SemanticsNode bell = tester.getSemantics(find.byKey(const Key('dock.notifications')).hitTestable());
-      expect(bell.hasAction(SemanticsAction.tap), isTrue);
+      final SemanticsNode bell =
+          tester.getSemantics(find.byKey(const Key('dock.notifications')));
+      expect(bell.getSemanticsData().actions & SemanticsAction.tap.index, isNonZero);
       handle.dispose();
     });
   });
