@@ -69,8 +69,16 @@ class GuardianScope extends InheritedWidget {
 
   int get unreadCount => controller.center.unreadCount;
 
+  /// Registers a dependency: use from build, so the widget rebuilds when the
+  /// inbox changes.
   static GuardianScope? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<GuardianScope>();
+
+  /// Reads the scope WITHOUT registering a dependency. Safe from [initState],
+  /// where dependOnInheritedWidgetOfExactType() is not allowed.
+  static GuardianScope? peekOf(BuildContext context) =>
+      context.getElementForInheritedWidgetOfExactType<GuardianScope>()?.widget
+          as GuardianScope?;
 
   @override
   bool updateShouldNotify(GuardianScope oldWidget) =>

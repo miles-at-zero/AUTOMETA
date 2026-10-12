@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/theme/autometa_theme.dart';
-import '../core/theme/design_tokens.dart';
-import '../core/utils/formatters.dart';
-import '../domain/health/guardian.dart';
-import '../domain/notifications/notification_center.dart';
-import '../services/settings/settings_service.dart';
+import '../../core/theme/autometa_theme.dart';
+import '../../core/theme/design_tokens.dart';
+import '../../core/utils/formatters.dart';
+import '../../domain/health/guardian.dart';
+import '../../domain/notifications/notification_center.dart';
+import '../../services/settings/settings_service.dart';
 import '../guardian_scope.dart';
 import '../widgets/autometa_widgets.dart';
 import '../widgets/guardian_panel.dart';
@@ -40,7 +40,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   @override
   void initState() {
     super.initState();
-    if (GuardianScope.maybeOf(context) == null) {
+    if (GuardianScope.peekOf(context) == null) {
       _own = GuardianInboxController();
       _settings = context.read<SettingsService>();
       unawaited(_loadOwn());

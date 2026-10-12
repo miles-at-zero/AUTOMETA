@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme/autometa_theme.dart';
-import '../core/theme/design_tokens.dart';
+import '../../core/theme/autometa_theme.dart';
+import '../../core/theme/design_tokens.dart';
 
 /// One destination in the floating dock.
 @immutable

@@ -1,28 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../cloud/cloud_session.dart';
-import '../core/theme/autometa_theme.dart';
-import '../core/theme/design_tokens.dart';
-import '../core/utils/formatters.dart';
-import '../domain/engine/approval_request.dart';
-import '../domain/health/guardian.dart';
-import '../domain/models/execution_status.dart';
-import '../domain/models/step.dart';
-import '../services/connections/connection_manager.dart';
-import '../services/connections/connection_state.dart';
-import '../state/app_state.dart';
-import '../widgets/autometa_widgets.dart';
-import '../widgets/floating_nav_dock.dart';
-import '../guardian_scope.dart';
-import '../widgets/guardian_panel.dart';
-import '../widgets/message_ready_card.dart';
 import '../app.dart';
+import '../guardian_scope.dart';
+import '../status_label.dart';
 import 'approval_sheet.dart';
 import 'business/business_shell.dart';
 import 'execution_detail_screen.dart';
-import '../status_label.dart';
 import 'notification_center_screen.dart';
+import '../../cloud/cloud_session.dart';
+import '../../core/theme/autometa_theme.dart';
+import '../../core/theme/design_tokens.dart';
+import '../../core/utils/formatters.dart';
+import '../../domain/engine/approval_request.dart';
+import '../../domain/health/guardian.dart';
+import '../../domain/models/execution.dart';
+import '../../domain/models/execution_status.dart';
+import '../../domain/models/step.dart';
+import '../../domain/schedule/schedule_calculator.dart';
+import '../../services/connections/connection_manager.dart';
+import '../../services/connections/connection_state.dart';
+import '../../state/app_state.dart';
+import '../widgets/autometa_widgets.dart';
+import '../widgets/floating_nav_dock.dart';
+import '../widgets/guardian_panel.dart';
+import '../widgets/message_ready_card.dart';
 
 // ---------------------------------------------------------------------------
 // View models. The dashboard is pure presentation over these, so it can be
@@ -31,7 +33,11 @@ import 'notification_center_screen.dart';
 
 @immutable
 class ControlRoomConnection {
-  const ControlRoomConnection({required this.name, required this.detail, required this.ok});
+  const ControlRoomConnection({
+    required this.name,
+    required this.detail,
+    required this.ok,
+  });
 
   final String name;
   final String detail;
@@ -147,7 +153,8 @@ class _ControlRoomScreenState extends State<ControlRoomScreen> {
             activeCount: state.activeCount,
             failureCount: state.failureCount,
             slotsToday: state.todaySlots.length,
-            runsToday: state.todaySlots.where((dynamic s) => s.execution != null).length,
+            runsToday:
+                state.todaySlots.where((ScheduledSlot s) => s.execution != null).length,
             attentionCount: findings.length,
             criticalCount: critical,
             unreadCount: scope?.unreadCount ?? 0,
@@ -169,26 +176,10 @@ class _ControlRoomScreenState extends State<ControlRoomScreen> {
             ],
             nextRun: _nextRun(state),
             today: <ControlRoomSlot>[
-              for (final dynamic s in state.todaySlots)
-                ControlRoomSlot(
-                  id: s.workflow.id as String,
-                  name: s.workflow.name as String,
-                  time: Formatters.time24((s.at as DateTime).toLocal()),
-                  icon: _slotIcon(s.execution),
-                  color: _slotColor(s.execution),
-                  statusLabel:
-                      s.execution == null ? null : honestStatusLabel(s.execution),
-                ),
+              for (final ScheduledSlot s in state.todaySlots) _slot(s),
             ],
             recent: <ControlRoomRun>[
-              for (final dynamic r in state.recentExecutions.take(5))
-                ControlRoomRun(
-                  id: r.id as String,
-                  name: r.workflowName as String,
-                  statusLabel: honestStatusLabel(r),
-                  color: statusColor(r.status as ExecutionStatus),
-                  when: Formatters.relative((r.startedAt as DateTime?)?.toLocal() ?? now),
-                ),
+              for (final ExecutionRecord r in state.recentExecutions.take(5)) _run(r, now),
             ],
             approvals: <ControlRoomApproval>[
               for (final ApprovalTicket t in state.pendingApprovals)
@@ -201,22 +192,13 @@ class _ControlRoomScreenState extends State<ControlRoomScreen> {
             onResume: () => state.setPaused(false),
             onOpenNotifications: () async {
               await Navigator.of(context).push<void>(
-                MaterialPageRoute<void>(builder: (_) => const NotificationCenterScreen()),
+                MaterialPageRoute<void>(
+                  builder: (_) => const NotificationCenterScreen(),
+                ),
               );
               if (mounted && scope != null) await scope.onRefresh();
             },
-            onOpenExecution: (ControlRoomRun run) async {
-              for (final dynamic r in state.recentExecutions) {
-                if (r.id == run.id) {
-                  await Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) => ExecutionDetailScreen(record: r),
-                    ),
-                  );
-                  return;
-                }
-              }
-            },
+            onOpenExecution: _openExecution,
             onNewAutomation: () => AppShell.newAutomation(context),
             onOpenBusiness: () => Navigator.of(context).push<void>(
                   MaterialPageRoute<void>(builder: (_) => const BusinessGate()),
@@ -232,11 +214,16 @@ class _ControlRoomScreenState extends State<ControlRoomScreen> {
             },
             onRefreshGuardian: scope == null ? null : () => scope.onRefresh(),
             onApprove: (ControlRoomApproval a) async {
-              final dynamic r = await state.resolveApproval(a.id, approved: true);
+              final ExecutionRecord? r =
+                  await state.resolveApproval(a.id, approved: true);
               if (!mounted) return;
-              showToast(context, r == null ? 'Could not open WhatsApp' : honestStatusLabel(r));
+              showToast(
+                context,
+                r == null ? 'Could not open WhatsApp' : honestStatusLabel(r),
+              );
             },
-            onSkip: (ControlRoomApproval a) => state.resolveApproval(a.id, approved: false),
+            onSkip: (ControlRoomApproval a) =>
+                state.resolveApproval(a.id, approved: false),
             onOpenApproval: (ControlRoomApproval a) {
               for (final ApprovalTicket t in state.pendingApprovals) {
                 if (t.id == a.id) {
@@ -251,46 +238,76 @@ class _ControlRoomScreenState extends State<ControlRoomScreen> {
     );
   }
 
-  ControlRoomNextRun? _nextRun(AppState state) {
-    final dynamic run = state.nextRun;
+  Future<void> _openExecution(ControlRoomRun run) async {
+    final AppState state = context.read<AppState>();
+    for (final ExecutionRecord r in state.recentExecutions) {
+      if (r.id == run.id) {
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => ExecutionDetailScreen(record: r),
+          ),
+        );
+        return;
+      }
+    }
+  }
+
+  static ControlRoomNextRun? _nextRun(AppState state) {
+    final WorkflowRun? run = state.nextRun;
     if (run == null) return null;
     String preview = '';
-    final dynamic workflow = run.workflow;
-    for (final dynamic s in workflow.steps as List<dynamic>) {
+    for (final WorkflowStep s in run.workflow.steps) {
       if (s is WhatsAppStep) {
-        preview = s.message as String;
+        preview = s.message;
         break;
       }
       if (s is NotificationStep) {
-        preview = s.body as String;
+        preview = s.body;
         break;
       }
     }
-    final DateTime at = (run.at as DateTime).toLocal();
+    final DateTime at = run.at.toLocal();
     return ControlRoomNextRun(
       time: Formatters.time(at),
-      name: workflow.name as String,
-      preview: preview.isEmpty ? workflow.name as String : Formatters.preview(preview),
+      name: run.workflow.name,
+      preview: preview.isEmpty ? run.workflow.name : Formatters.preview(preview),
       relative: Formatters.relative(at),
     );
   }
 
+  static ControlRoomSlot _slot(ScheduledSlot s) {
+    final ExecutionRecord? run = s.execution;
+    final IconData icon;
+    if (run == null) {
+      icon = Icons.radio_button_unchecked;
+    } else {
+      icon = switch (run.status) {
+        ExecutionStatus.success => Icons.check_circle,
+        ExecutionStatus.failed => Icons.error_outline,
+        _ => Icons.schedule,
+      };
+    }
+    return ControlRoomSlot(
+      id: s.workflow.id,
+      name: s.workflow.name,
+      time: Formatters.time24(s.at.toLocal()),
+      icon: icon,
+      color: run == null ? AutometaColors.neutral : statusColor(run.status),
+      statusLabel: run == null ? null : honestStatusLabel(run),
+    );
+  }
+
+  static ControlRoomRun _run(ExecutionRecord r, DateTime now) => ControlRoomRun(
+        id: r.id,
+        name: r.workflowName,
+        statusLabel: honestStatusLabel(r),
+        color: statusColor(r.status),
+        when: Formatters.relative((r.startedAt ?? now).toLocal()),
+      );
+
   static String _serviceName(String service) {
     if (service.isEmpty) return service;
     return service[0].toUpperCase() + service.substring(1);
-  }
-
-  static IconData _slotIcon(dynamic execution) {
-    if (execution == null) return Icons.radio_button_unchecked;
-    final ExecutionStatus status = execution.status as ExecutionStatus;
-    if (status == ExecutionStatus.success) return Icons.check_circle;
-    if (status == ExecutionStatus.failed) return Icons.error_outline;
-    return Icons.schedule;
-  }
-
-  static Color _slotColor(dynamic execution) {
-    if (execution == null) return AutometaColors.neutral;
-    return statusColor(execution.status as ExecutionStatus);
   }
 }
 
@@ -310,12 +327,12 @@ class ControlRoomView extends StatelessWidget {
     required this.attentionCount,
     required this.criticalCount,
     required this.unreadCount,
+    required this.findings,
     required this.connections,
     required this.nextRun,
     required this.today,
     required this.recent,
     required this.approvals,
-    required this.findings,
     required this.onNewAutomation,
     required this.onOpenNotifications,
     this.cloudGap = false,
@@ -341,17 +358,17 @@ class ControlRoomView extends StatelessWidget {
   final int criticalCount;
   final int unreadCount;
 
+  /// Guardian findings from the shell's pass; rendered by the same widget the
+  /// old Home screen used, so the dashboard and the inbox agree.
+  final List<GuardianFinding> findings;
+  final bool cloudGap;
+  final bool notEnoughHistory;
+
   final List<ControlRoomConnection> connections;
   final ControlRoomNextRun? nextRun;
   final List<ControlRoomSlot> today;
   final List<ControlRoomRun> recent;
   final List<ControlRoomApproval> approvals;
-
-  /// Guardian findings from the shell's pass; rendered by the same widget Home
-  /// used, so the Control Room and the Notification Center agree.
-  final List<GuardianFinding> findings;
-  final bool cloudGap;
-  final bool notEnoughHistory;
 
   final VoidCallback onNewAutomation;
   final VoidCallback onOpenNotifications;
@@ -398,7 +415,11 @@ class ControlRoomView extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AutometaSpacing.lg),
-              Text(greeting, key: const Key('controlRoom.greeting'), style: t.headlineMedium),
+              Text(
+                greeting,
+                key: const Key('controlRoom.greeting'),
+                style: t.headlineMedium,
+              ),
 
               // ---- hero ---------------------------------------------------
               const SizedBox(height: AutometaSpacing.lg),
@@ -494,7 +515,10 @@ class ControlRoomView extends StatelessWidget {
                   onTap: onOpenApproval == null ? null : () => onOpenApproval!(a),
                   child: Row(
                     children: <Widget>[
-                      const Icon(Icons.verified_user_outlined, color: AutometaColors.secondary),
+                      const Icon(
+                        Icons.verified_user_outlined,
+                        color: AutometaColors.secondary,
+                      ),
                       const SizedBox(width: AutometaSpacing.md),
                       Expanded(
                         child: Column(
@@ -502,7 +526,8 @@ class ControlRoomView extends StatelessWidget {
                           children: <Widget>[
                             Text(
                               'WAITING FOR APPROVAL',
-                              style: t.labelSmall?.copyWith(color: AutometaColors.secondary),
+                              style:
+                                  t.labelSmall?.copyWith(color: AutometaColors.secondary),
                             ),
                             Text(a.title, style: t.titleSmall),
                           ],
@@ -580,10 +605,10 @@ class ControlRoomView extends StatelessWidget {
                           dense: true,
                           title: Text(r.name),
                           subtitle: Text(r.when),
-                          trailing: onOpenExecution == null
+                          trailing: StatusPill(label: r.statusLabel, color: r.color),
+                          onTap: onOpenExecution == null
                               ? null
-                              : StatusPill(label: r.statusLabel, color: r.color),
-                          onTap: onOpenExecution == null ? null : () => onOpenExecution!(r),
+                              : () => onOpenExecution!(r),
                         ),
                     ],
                   ),
@@ -630,10 +655,13 @@ class ControlRoomView extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            Text('Business mode', style: TextStyle(fontWeight: FontWeight.w600)),
                             Text(
-                              'Auto-reply to customers, take orders, capture leads and share the inbox with staff, '
-                              'using the official WhatsApp Business Platform.',
+                              'Business mode',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              'Auto-reply to customers, take orders, capture leads and share '
+                              'the inbox with staff, using the official WhatsApp Business Platform.',
                             ),
                           ],
                         ),
