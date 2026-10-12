@@ -11,7 +11,7 @@ import '../../state/app_state.dart';
 import '../widgets/autometa_widgets.dart';
 import 'cloud_execution_screen.dart';
 import 'execution_detail_screen.dart';
-import 'home_screen.dart';
+import '../status_label.dart';
 
 /// One row in Activity: a run on this device or in Cloud.
 class _Item {

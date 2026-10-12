@@ -7,7 +7,7 @@ import '../../domain/models/execution.dart';
 import '../../domain/models/execution_status.dart';
 import '../../state/app_state.dart';
 import '../widgets/autometa_widgets.dart';
-import 'home_screen.dart';
+import '../status_label.dart';
 
 /// "Execution details" (spec §19).
 class ExecutionDetailScreen extends StatefulWidget {

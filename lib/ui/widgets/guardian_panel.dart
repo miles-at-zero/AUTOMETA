@@ -30,8 +30,11 @@ class GuardianPanel extends StatefulWidget {
   State<GuardianPanel> createState() => _GuardianPanelState();
 }
 
-class _Report {
-  const _Report(this.findings, {required this.cloudGap, required this.notEnoughHistory});
+/// The result of one Guardian pass.
+@immutable
+class GuardianSnapshot {
+  const GuardianSnapshot(this.findings, {required this.cloudGap, required this.notEnoughHistory});
+
   final List<GuardianFinding> findings;
 
   /// Active Cloud automations exist but Cloud couldn't be checked.
@@ -42,73 +45,101 @@ class _Report {
   final bool notEnoughHistory;
 }
 
+/// Runs one Guardian pass: on-device findings from this phone's run records,
+/// plus Cloud findings from `GET /v1/guardian` when signed in.
+///
+/// Shared by the Home/Control Room panel and the Notification Center so both
+/// describe the same problems from the same data, and a fix made in one place
+/// clears the warning in the other.
+Future<GuardianSnapshot> loadGuardianSnapshot(BuildContext context) async {
+  final AppState state = context.read<AppState>();
+  final AppServices services = context.read<AppServices>();
+  final CloudSession cloud = context.read<CloudSession>();
+  final List<Workflow> workflows = List<Workflow>.of(state.workflows);
+  final List<ExecutionRecord> local = await services.executions.recent(limit: 300);
+  final DateTime now = DateTime.now();
+  final List<GuardianFinding> found = GuardianFinding.forDevice(workflows, local, now);
+  bool judged = GuardianFinding.deviceHasHistory(workflows, local, now);
+  final bool cloudRelevant = workflows.any((Workflow w) => w.isCloud && w.enabled);
+  bool cloudChecked = false;
+  if (cloud.signedIn) {
+    try {
+      final Map<String, dynamic> report = await cloud.guardian();
+      found.addAll(GuardianFinding.fromCloudReport(report));
+      judged = judged || GuardianFinding.cloudHasHistory(report);
+      cloudChecked = true;
+    } catch (_) {
+      cloudChecked = false; // offline / older server: say so, never "all clear"
+    }
+  }
+  return GuardianSnapshot(
+    GuardianFinding.sorted(found),
+    cloudGap: cloudRelevant && !cloudChecked,
+    notEnoughHistory: found.isEmpty && !judged,
+  );
+}
+
+/// Opens what a Guardian finding points at: the automation, the reconnect
+/// screen, or — when a Cloud automation isn't on this phone yet — an honest
+/// message instead of a dead tap.
+///
+/// Shared with the Notification Center so tapping a row there does exactly
+/// what tapping the same finding on the dashboard does.
+Future<void> openGuardianTarget(
+  BuildContext context, {
+  required String? workflowId,
+  required String? cloudAutomationId,
+  required String? connectionId,
+}) async {
+  final List<Workflow> ws = context.read<AppState>().workflows;
+  Widget? target;
+  if (connectionId != null) {
+    target = CloudAccountScreen(reconnectConnectionId: connectionId);
+  } else {
+    final Workflow? w = ws.cast<Workflow?>().firstWhere(
+          (Workflow? w) =>
+              w != null &&
+              (w.id == workflowId || (cloudAutomationId != null && w.cloudId == cloudAutomationId)),
+          orElse: () => null,
+        );
+    if (w != null) target = AutomationDetailScreen(workflow: w);
+  }
+  if (target == null) {
+    // Cloud automation not synced to this phone yet: say so, no dead tap.
+    showToast(context, 'This automation isn\'t on this phone yet. Pull down to refresh, then try again.');
+    return;
+  }
+  await Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => target!));
+}
+
 class _GuardianPanelState extends State<GuardianPanel> {
-  Future<_Report>? _report;
+  Future<GuardianSnapshot>? _report;
 
   @override
   void initState() {
     super.initState();
-    _report = _load();
-  }
-
-  Future<_Report> _load() async {
-    final AppState state = context.read<AppState>();
-    final AppServices services = context.read<AppServices>();
-    final CloudSession cloud = context.read<CloudSession>();
-    final List<Workflow> workflows = List<Workflow>.of(state.workflows);
-    final List<ExecutionRecord> local = await services.executions.recent(limit: 300);
-    final DateTime now = DateTime.now();
-    final List<GuardianFinding> found = GuardianFinding.forDevice(workflows, local, now);
-    bool judged = GuardianFinding.deviceHasHistory(workflows, local, now);
-    final bool cloudRelevant = workflows.any((Workflow w) => w.isCloud && w.enabled);
-    bool cloudChecked = false;
-    if (cloud.signedIn) {
-      try {
-        final Map<String, dynamic> report = await cloud.guardian();
-        found.addAll(GuardianFinding.fromCloudReport(report));
-        judged = judged || GuardianFinding.cloudHasHistory(report);
-        cloudChecked = true;
-      } catch (_) {
-        cloudChecked = false; // offline / older server: say so, never "all clear"
-      }
-    }
-    return _Report(
-      GuardianFinding.sorted(found),
-      cloudGap: cloudRelevant && !cloudChecked,
-      notEnoughHistory: found.isEmpty && !judged,
-    );
+    _report = loadGuardianSnapshot(context);
   }
 
   Future<void> _open(GuardianFinding f) async {
-    final List<Workflow> ws = context.read<AppState>().workflows;
-    Widget? target;
-    if (f.connectionId != null) {
-      target = CloudAccountScreen(reconnectConnectionId: f.connectionId);
-    } else {
-      final Workflow? w = ws.cast<Workflow?>().firstWhere(
-            (Workflow? w) => w != null && (w.id == f.workflowId || (f.cloudAutomationId != null && w.cloudId == f.cloudAutomationId)),
-            orElse: () => null,
-          );
-      if (w != null) target = AutomationDetailScreen(workflow: w);
-    }
-    if (target == null) {
-      // Cloud automation not synced to this phone yet: say so, no dead tap.
-      showToast(context, 'This automation isn\'t on this phone yet. Pull down on Home to refresh, then try again.');
-      return;
-    }
-    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => target!));
+    await openGuardianTarget(
+      context,
+      workflowId: f.workflowId,
+      cloudAutomationId: f.cloudAutomationId,
+      connectionId: f.connectionId,
+    );
     // Re-check on return so a fixed problem doesn't linger as a stale finding.
-    if (mounted) setState(() => _report = _load());
+    if (mounted) setState(() => _report = loadGuardianSnapshot(context));
   }
 
   @override
   Widget build(BuildContext context) {
     final bool anyActive = context.select<AppState, bool>((AppState s) => s.workflows.any((Workflow w) => w.enabled));
     if (!anyActive) return const SizedBox.shrink();
-    return FutureBuilder<_Report>(
+    return FutureBuilder<GuardianSnapshot>(
       future: _report,
-      builder: (BuildContext context, AsyncSnapshot<_Report> snap) {
-        final _Report? r = snap.data;
+      builder: (BuildContext context, AsyncSnapshot<GuardianSnapshot> snap) {
+        final GuardianSnapshot? r = snap.data;
         if (r == null) return const SizedBox.shrink();
         return Padding(
           padding: const EdgeInsets.only(bottom: AutometaSpacing.md),
@@ -117,7 +148,7 @@ class _GuardianPanelState extends State<GuardianPanel> {
             cloudGap: r.cloudGap,
             notEnoughHistory: r.notEnoughHistory,
             onOpen: _open,
-            onRefresh: () => setState(() => _report = _load()),
+            onRefresh: () => setState(() => _report = loadGuardianSnapshot(context)),
           ),
         );
       },
